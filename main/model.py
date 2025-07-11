@@ -1,5 +1,6 @@
 from mcunet.mcunet.model_zoo import net_id_list, build_model, download_tflite
 from torchsummary import summary 
+from config import DEVICE, DATASET_ROOT
 import torch
 import torch.nn as nn 
 
@@ -20,7 +21,7 @@ class YoloHead(nn.Module):
 # feature map  
 class McuYolo(nn.Module):
 
-    def __init__(self, num_classes=20, num_anchors=5):
+    def __init__(self, num_classes=20, num_anchors = 5):
         super().__init__()
         self.backbone, _, _ = build_model(net_id="mcunet-in4", pretrained=True)
 
@@ -144,7 +145,7 @@ class Yolov2Loss(nn.Module):
         class_probs = predictions[..., 5:]
 
         # Anchors
-        anchor_tensor = torch.tensor(self.anchors) # device
+        anchor_tensor = torch.tensor(self.anchors, device = DEVICE)
         # widths: tensor([1.0, 2.0, 1.5]), reshape -1 : total number of elements
         anchor_w = anchor_tensor[:, 0].reshape(1, -1, 1, 1) # [[[[1.0]], [[2.0]], [[1.5]]]] 
         # heights: tensor([2.0, 1.0, 1.5])
@@ -160,17 +161,17 @@ class Yolov2Loss(nn.Module):
         # Step 3: compute objectness mask (1^obj_ij) and noobj mask
         # [B, A, S, S]
         obj_mask = torch.zeros(
-            (batch_size, num_anchors, sh, sw), dtype=torch.bool)
+            (batch_size, num_anchors, sh, sw), dtype=torch.bool, device = DEVICE)
         no_obj_mask = torch.ones(
-            (batch_size, num_anchors, sh, sw), dtype=torch.bool)
+            (batch_size, num_anchors, sh, sw), dtype=torch.bool, device = DEVICE)
 
         # These store the ground truth targets (same shape as prediction maps)
-        gx_map = torch.zeros((batch_size, num_anchors, sh, sw))
-        gy_map = torch.zeros_like(gx_map)
-        gw_map = torch.zeros_like(gx_map)
-        gh_map = torch.zeros_like(gx_map)
-        iou_map = torch.zeros_like(gx_map)
-        gt_class_map = torch.zeros((batch_size, num_anchors, sh, sw), dtype=torch.long)  # for class labels
+        gx_map = torch.zeros((batch_size, num_anchors, sh, sw), device = DEVICE)
+        gy_map = torch.zeros_like(gx_map, device = DEVICE)
+        gw_map = torch.zeros_like(gx_map, device = DEVICE)
+        gh_map = torch.zeros_like(gx_map, device = DEVICE)
+        iou_map = torch.zeros_like(gx_map, device = DEVICE)
+        gt_class_map = torch.zeros((batch_size, num_anchors, sh, sw), dtype=torch.long, device = DEVICE)  # for class labels
 
         for b in range(batch_size):
             # targets[b]: List[Tensor[num_objects, 5]] 
@@ -181,16 +182,16 @@ class Yolov2Loss(nn.Module):
                 gi = int(gx * sw) # gx is (0,1) w.r.t. image size # which cell x-axis
                 gj = int(gy * sh) 
 
-                gt_box = torch.tensor([0, 0, gw, gh]) # assume centered at (0, 0), with size gw x gh
+                gt_box = torch.tensor([0, 0, gw, gh], device = DEVICE) # assume centered at (0, 0), with size gw x gh
                 anchor_ious = []
 
                 for anchor in self.anchors: 
-                    anchor_box = torch.tensor([0, 0, anchor[0], anchor[1]]) # use centered at (0, 0) to align coordination
+                    anchor_box = torch.tensor([0, 0, anchor[0], anchor[1]], device = DEVICE) # use centered at (0, 0) to align coordination
                     iou = self.calculate_iou(gt_box, anchor_box)
                     anchor_ious.append(iou)
 
                 # assign anchor with highest IoU
-                best_a = torch.argmax(torch.tensor(anchor_ious)).item() # argmax output is tensor(2), use item() extracts the value
+                best_a = torch.argmax(torch.tensor(anchor_ious, device = DEVICE)).item() # argmax output is tensor(2), use item() extracts the value
 
                 # set masks
                 obj_mask[b, best_a, gj, gi] = True
@@ -208,9 +209,9 @@ class Yolov2Loss(nn.Module):
                 pred_by = by[b, best_a, gj, gi] + gj
                 pred_bw = bw[b, best_a, gj, gi]
                 pred_bh = bh[b, best_a, gj, gi]
-                pred_box = torch.tensor([pred_bx, pred_by, pred_bw, pred_bh]) #, device=device)
+                pred_box = torch.tensor([pred_bx, pred_by, pred_bw, pred_bh], device = DEVICE) #, device=device)
 
-                true_box = torch.tensor([gx * sw, gy * sh, gw * sw, gh * sh])
+                true_box = torch.tensor([gx * sw, gy * sh, gw * sw, gh * sh], device = DEVICE)
                 iou_map[b, best_a, gj, gi] = self.calculate_iou(true_box, pred_box)
                         
         
@@ -273,8 +274,8 @@ if __name__ == "__main__":
 
     dummy_input = torch.randn(2, 3, 160, 160)
     dummy_targets = [
-        [torch.tensor([0.5, 0.5, 0.2, 0.3, 10])],  # image 1: 1 box
-        [torch.tensor([0.4, 0.4, 0.1, 0.2, 5])]    # image 2: 1 box
+        [torch.tensor([0.5, 0.5, 0.2, 0.3, 10], device = DEVICE)],  # image 1: 1 box
+        [torch.tensor([0.4, 0.4, 0.1, 0.2, 5], device = DEVICE)]    # image 2: 1 box
     ]
 
     model = McuYolo(num_classes=80, num_anchors=5)

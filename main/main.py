@@ -3,83 +3,80 @@ import matplotlib.patches as patches
 from PIL import Image
 import torchvision.transforms as transforms
 import torch
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from config import DEVICE, DATASET_ROOT
 
 import preprocess
 import model
 import ast
 
-# Read imagenet_labels
-with open("imagenet_labels.txt", "r") as f:
-    class_dict = ast.literal_eval(f.read())
+# Setting
+anchors = [[1,2], [2,1], [1.5, 1.5], [2,2], [1,1]]
+num_classes = 80
+image_size = 160 # mcunet
+
+def yolo_collate_fn(batch):
+    images = []
+    targets = []
+
+    for img, target in batch:
+        images.append(img)
+        targets.append(target)  # keep list of [num_objects_i, 5] tensors
+
+    return torch.stack(images, dim=0), targets
+
+# Read coco_labels
+with open("coco_labels.txt", "r") as f:
+    coco_label_map = ast.literal_eval(f.read())
+
+# Load model and loss 
+net = model.McuYolo(num_classes = num_classes, num_anchors = len(anchors)).to(DEVICE)
+loss_fn = model.Yolov2Loss(num_classes = num_classes, anchors = anchors).to(DEVICE)
+optimiser = optim.Adam(net.parameters(), lr=1e-4) #optimiser: adam, sgd, ada ... 
+
+# Load dataset
+# image_dir, ann_file, coco_label_map, image_size=160, max_samples=None)
+train_dataset = preprocess.YoloDataset(
+    image_dir = DATASET_ROOT + "train/data", 
+    ann_file =  DATASET_ROOT + "raw/instances_train2017.json", 
+    coco_label_map = coco_label_map, max_samples = 5)
+val_dataset = preprocess.YoloDataset(
+    image_dir = DATASET_ROOT + "validation/data", 
+    ann_file =  DATASET_ROOT + "raw/instances_val2017.json", 
+    coco_label_map = coco_label_map, max_samples = 5)
+
+# batch_size: number of images (samples) processed together in one forward pass
+# images: a tensor of batch_size images, shape [2, C, H, W]
+# targets: a list of batch_size elements 
+train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, collate_fn = yolo_collate_fn)
+val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn = yolo_collate_fn)
 
 
-train_dataset = preprocess.get_dataset("validation")
-model = model.get_model()
+# Training Loop
+for epoch in range(1):
+    net.train()
+    # imgs: a tensor of batch_size images, shape [batch_size, C, H, W]
+    # targets: a list of batch_size elements
+    for i, (imgs, targets) in enumerate(train_loader):
+        if i >=3 : break
 
-for idx, sample in enumerate(train_dataset):
-    print("Image path: ", sample.filepath)
+        imgs = imgs.to(DEVICE)
+        preds = net(imgs)
+        loss = loss_fn(preds, targets)
+        optimiser.zero_grad()
+        loss.backward()
+        optimiser.step() # update params: SGD
 
-    img = Image.open(sample.filepath)
-    w, h = img.size
+        print(f"Train Step {i}, Loss: {loss.item():.4f}")
 
-    # Convert to RGB
-    # Some Images Are Not RGB by Default
-    img = img.convert("RGB") 
+# Validation
+net.eval()
+with torch.no_grad():
+    for i, (imgs, targets) in enumerate(val_loader):
+        if i >= 1: break
+        imgs = imgs.to(DEVICE)
+        preds = net(imgs)
+        loss = loss_fn(preds, targets)
 
-    # Resize and normalise
-    transform = transforms.Compose([
-        transforms.Resize((160, 160)),
-        transforms.ToTensor() # HWC -> CHW 
-    ])
-
-    tensor_img = transform(img)
-    # Convert tensor back to PIL image
-    resize_img = transforms.functional.to_pil_image(tensor_img)
-    # Save to disk (compressed)
-    resize_img.save(f"./images/resize_image_{idx}.png")  
-
-    # Input tensor for training [3,H,W] -> [1,3,H,W]
-    input_tensor = transform(img).unsqueeze(0) 
-
-    model.eval()
-
-    with torch.no_grad():
-        output = model(input_tensor)
-
-        # print(output)
-        probs = torch.softmax(output, dim=1) # [1, num_classes]
-        pred_class = torch.argmax(probs).item()
-        print(pred_class)
-        print(class_dict[pred_class])
-
-    # # Start a plot
-    # fig, ax = plt.subplots(1)
-    # ax.imshow(img)
-
-    # # Draw detection boxes
-    # if sample.ground_truth:
-    #     detections = sample.ground_truth.detections
-    # else:
-    #     detections = []
-    
-    # for det in detections:
-    #     label = det.label
-    #     bbox = det.bounding_box # normalized [x, y, width, height]
-
-    #     x = bbox[0] * w
-    #     y = bbox[1] * h 
-    #     width = bbox[2] * w 
-    #     height = bbox[3] * h 
-
-    #     # add bounding box on the image
-    #     rect = patches.Rectangle(
-    #         (x, y), width, height, linewidth=2, edgecolor='red', facecolor='none')
-    #     ax.add_patch(rect)
-    #     ax.text(x, y, label, color='white', bbox=dict(facecolor='red', alpha=0.5))
-    
-    # ax.axis("off")
-
-    # # Save figure 
-    # save_path = f"./images/image_{idx}.png"
-    # plt.savefig(save_path, bbox_inches='tight')
-    # plt.close(fig)  # Free memory
+        print(f"Val Step {i}, Loss: {loss.item():.4f}")
