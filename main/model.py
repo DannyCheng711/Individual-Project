@@ -3,6 +3,8 @@ from torchsummary import summary
 from config import DEVICE, DATASET_ROOT
 import torch
 import torch.nn as nn 
+import torchvision.transforms as transforms
+from PIL import Image, ImageDraw, ImageFont
 
 print(net_id_list)  # the list of models in the model zoo
 
@@ -68,6 +70,16 @@ class McuYolo(nn.Module):
         # final detection 
         return self.det_head(x)
 
+    def freeze_backbone(self):
+        for name, param in self.backbone.named_parameters():
+            param.requires_grad = False 
+        print("Backbone frozen ... ")
+
+    def unfreeze_backbone(self):
+        for name, param in self.backbone.named_parameters():
+            params.requires_grad = True
+        print("Backbone unfrozen ...")
+
 # using sequential for creating the model 
 class SpaceToDepth(nn.Module):
     def __init__(self, block_size=2):
@@ -100,35 +112,77 @@ class Yolov2Loss(nn.Module):
         self.lambda_coord = lambda_coord
         self.lambda_noobj = lambda_noobj
 
-    def calculate_iou(self, gbox, abox):
-        w1, h1 = gbox[2], gbox[3]
-        w2, h2 = abox[2], abox[3]
+        self.count = 0
 
-        # compute intersection dimensions
+    def calculate_iou(self, ground_box, pred_box):
+        """
+        Compute IoU between two boxes in [cx, cy, w, h] format.
+        All coordinates should be in the same unit (e.g., grid cells).
+        """
+
+        cx1, cy1, w1, h1 = ground_box
+        cx2, cy2, w2, h2 = pred_box
+
+        # convert center format to corner format 
+        x1_min = cx1 - w1 / 2
+        y1_min = cy1 - h1 / 2
+        x1_max = cx1 + w1 / 2
+        y1_max = cy1 + h1 / 2
+        
+        x2_min = cx2 - w2 / 2
+        y2_min = cy2 - h2 / 2
+        x2_max = cx2 + w2 / 2
+        y2_max = cy2 + h2 / 2
+
+        # Compute intersection
+        inter_xmin = max(x1_min, x2_min)
+        inter_ymin = max(y1_min, y2_min)
+        inter_xmax = min(x1_max, x2_max)
+        inter_ymax = min(y1_max, y2_max)
+
+        inter_w = max(0.0, inter_xmax - inter_xmin)
+        inter_h = max(0.0, inter_ymax - inter_ymin)
+        inter_area = inter_w * inter_h
+
+        # Compute union
+        area1 = w1 * h1
+        area2 = w2 * h2
+        union_area = area1 + area2 - inter_area
+
+        iou = inter_area / union_area if union_area > 0 else 0.0
+        return iou
+
+    def calculate_iou_wh(self, ground_box, anchor_box):
+        """
+        Compute IoU between two boxes using only [w, h] dimensions.
+        Assumes both boxes are centered at the same location (e.g., (0, 0)).
+        Used for anchor shape matching only.
+        """
+
+        _, _, w1, h1 = ground_box
+        _, _, w2, h2 = anchor_box
+
+        # Compute intersection
         inter_w = min(w1, w2)
         inter_h = min(h1, h2)
         inter_area = inter_w * inter_h
 
-        # computer union
+        # Compute union
         area1 = w1 * h1
-        area2 = w2 * h2 
+        area2 = w2 * h2
         union_area = area1 + area2 - inter_area
 
-        # avoid divide by zero
         iou = inter_area / union_area if union_area > 0 else 0.0
         return iou
 
     
-    def forward(self, predictions, targets):
+    def forward(self, predictions, targets, imgs = None):
 
         # Step 1: reshape predictions (B, S, S, A*(5+C)) → (B, A, S, S, 5+C)
         batch_size, sh, sw, pred_dim = predictions.shape
         num_anchors = len(self.anchors)
 
         # Make sure the channel dimension matches
-        print("prediction2 shape ... ")
-        print(predictions.shape)
-        
         expected_dim = num_anchors * (5 + self.num_classes)
         assert pred_dim == expected_dim, f"Expected {expected_dim}, got {pred_dim}"
 
@@ -152,11 +206,14 @@ class Yolov2Loss(nn.Module):
         anchor_h = anchor_tensor[:, 1].reshape(1, -1, 1, 1)
 
         # decode predicted box (using tensor)
-        bx = torch.sigmoid(tx) # offset from top-left corner of the cell
-        by = torch.sigmoid(ty) # offset from top-left corner of the cell
-        bw = torch.exp(tw) * anchor_w # scale respect to anchor box
-        bh = torch.exp(th) * anchor_h # scale respect to anchor box
+        # bx, by  in [0,1], within current grid cell
+        ## bx = torch.sigmoid(tx) 
+        ## by = torch.sigmoid(ty) 
+        # bw, bh  in [0,1], grid cell units 
+        ## bw = torch.exp(tw) * anchor_w 
+        ## bh = torch.exp(th) * anchor_h 
         obj_conf = torch.sigmoid(obj_score) # IOU
+        
         
         # Step 3: compute objectness mask (1^obj_ij) and noobj mask
         # [B, A, S, S]
@@ -166,55 +223,83 @@ class Yolov2Loss(nn.Module):
             (batch_size, num_anchors, sh, sw), dtype=torch.bool, device = DEVICE)
 
         # These store the ground truth targets (same shape as prediction maps)
-        gx_map = torch.zeros((batch_size, num_anchors, sh, sw), device = DEVICE)
-        gy_map = torch.zeros_like(gx_map, device = DEVICE)
-        gw_map = torch.zeros_like(gx_map, device = DEVICE)
-        gh_map = torch.zeros_like(gx_map, device = DEVICE)
-        iou_map = torch.zeros_like(gx_map, device = DEVICE)
-        gt_class_map = torch.zeros((batch_size, num_anchors, sh, sw), dtype=torch.long, device = DEVICE)  # for class labels
+        ground_gx = torch.zeros((batch_size, num_anchors, sh, sw), device = DEVICE)
+        ground_gy = torch.zeros_like(ground_gx, device = DEVICE)
+        ground_gw = torch.zeros_like(ground_gx, device = DEVICE)
+        ground_gh = torch.zeros_like(ground_gx, device = DEVICE)
+        iou_map = torch.zeros_like(ground_gx, device = DEVICE)
+        ground_class = torch.zeros((batch_size, num_anchors, sh, sw), dtype=torch.long, device = DEVICE)  # for class labels
+
+        pred_bx = torch.zeros((batch_size, num_anchors, sh, sw), device = DEVICE)
+        pred_by = torch.zeros_like(pred_bx, device = DEVICE)
+        pred_bw = torch.zeros_like(pred_bx, device = DEVICE)
+        pred_bh = torch.zeros_like(pred_bx, device = DEVICE)
+
+        pos_count = 0
+        saved_debug_count = 0
 
         for b in range(batch_size):
             # targets[b]: List[Tensor[num_objects, 5]] 
             # [x_center, y_center, width, height, class_id]
             for gt in targets[b]: 
-                gx, gy, gw, gh, gt_cls = gt.tolist()
+                gx, gy, gw, gh, gt_cls = gt.tolist() # [0, 1] w.r.t image size
 
-                gi = int(gx * sw) # gx is (0,1) w.r.t. image size # which cell x-axis
-                gj = int(gy * sh) 
-
-                gt_box = torch.tensor([0, 0, gw, gh], device = DEVICE) # assume centered at (0, 0), with size gw x gh
+                # grid normalise
+                gt_box = [0, 0, gw * sw, gh * sh] # box size in grid units
                 anchor_ious = []
 
-                for anchor in self.anchors: 
-                    anchor_box = torch.tensor([0, 0, anchor[0], anchor[1]], device = DEVICE) # use centered at (0, 0) to align coordination
-                    iou = self.calculate_iou(gt_box, anchor_box)
+                for anchor in self.anchors:
+                    anchor_box = [0, 0, anchor[0], anchor[1]]
+                    iou = self.calculate_iou_wh(gt_box, anchor_box)
                     anchor_ious.append(iou)
 
                 # assign anchor with highest IoU
                 best_a = torch.argmax(torch.tensor(anchor_ious, device = DEVICE)).item() # argmax output is tensor(2), use item() extracts the value
+                max_iou = anchor_ious[best_a]
+                
+                # print(f"[DEBUG] GT: w={gw*sw:.2f}, h={gh*sh:.2f}, Best IOU={max_iou:.3f}, Anchor ID={best_a}")
+                if max_iou > 0.5:
+                    pos_count += 1
+                elif saved_debug_count < 10:
+                    img_pil = transforms.functional.to_pil_image(imgs[b].cpu())
+                    # visualise_iou_anchor(img_pil, gt, self.anchors[best_a], save_path =  f"./test/anchor_debug_train_{self.count}.jpg")
+                    saved_debug_count += 1
+                    self.count += 1
 
+                # convert into which grid cell
+                gi = int(gx * sw) 
+                gj = int(gy * sh) 
                 # set masks
                 obj_mask[b, best_a, gj, gi] = True
                 no_obj_mask[b, best_a, gj, gi] = False
 
                 # Fill target maps (use fractional offset for gx, gy)
-                gx_map[b, best_a, gj, gi] = gx * sw - gi   # fractional offset within cell
-                gy_map[b, best_a, gj, gi] = gy * sh - gj
-                gw_map[b, best_a, gj, gi] = gw
-                gh_map[b, best_a, gj, gi] = gh
-                gt_class_map[b, best_a, gj, gi] = int(gt_cls)
+                ground_gx[b, best_a, gj, gi] = gx * sw - gi   # offset within cell (units of grid cells)
+                ground_gy[b, best_a, gj, gi] = gy * sh - gj
+                ground_gw[b, best_a, gj, gi] = gw * sw # unit of grid cell 
+                ground_gh[b, best_a, gj, gi] = gh * sh 
+                ground_class[b, best_a, gj, gi] = int(gt_cls) # class index in each cell 
 
                 # Reconstruct predicted box at this location
-                pred_bx = bx[b, best_a, gj, gi] + gi
-                pred_by = by[b, best_a, gj, gi] + gj
-                pred_bw = bw[b, best_a, gj, gi]
-                pred_bh = bh[b, best_a, gj, gi]
-                pred_box = torch.tensor([pred_bx, pred_by, pred_bw, pred_bh], device = DEVICE) #, device=device)
+                pred_bx[b, best_a, gj, gi] = torch.sigmoid(tx[b, best_a, gj, gi]) # offset within cell (units of grid cells)
+                pred_by[b, best_a, gj, gi]= torch.sigmoid(ty[b, best_a, gj, gi])
+                pred_bw[b, best_a, gj, gi] = torch.exp(tw[b, best_a, gj, gi]) * self.anchors[best_a][0] # width in grid cell units
+                pred_bh[b, best_a, gj, gi] = torch.exp(th[b, best_a, gj, gi]) * self.anchors[best_a][1] # height in grid cell units
 
-                true_box = torch.tensor([gx * sw, gy * sh, gw * sw, gh * sh], device = DEVICE)
-                iou_map[b, best_a, gj, gi] = self.calculate_iou(true_box, pred_box)
-                        
+                # Calculate iou, using absolute center coordinate
+                cx_gt = ground_gx[b, best_a, gj, gi] + gi    # center x in grid units
+                cy_gt = ground_gy[b, best_a, gj, gi] + gj
+                cx_pred = pred_bx[b, best_a, gj, gi] + gi
+                cy_pred = pred_by[b, best_a, gj, gi] + gj
+
+                iou_map[b, best_a, gj, gi] = self.calculate_iou(
+                    [cx_gt, cy_gt, ground_gw[b, best_a, gj, gi], ground_gh[b, best_a, gj, gi]],
+                    [cx_pred, cy_pred, pred_bw[b, best_a, gj, gi], pred_bh[b, best_a, gj, gi]]
+                )        
         
+        print(f"[DEBUG] Positive anchor matches in batch: {pos_count}")
+        
+
         # Step 4: compute individual loss components
         # decode predictions using anchors
         loss_coord_offset = 0.0 
@@ -222,24 +307,36 @@ class Yolov2Loss(nn.Module):
 
         # loss_coord
         loss_coord_offset = self.lambda_coord * torch.sum(
-            obj_mask * ((bx - gx_map) ** 2 + (by - gy_map) ** 2)
+            obj_mask * ((pred_bx - ground_gx) ** 2 + (pred_by - ground_gy) ** 2)
         )
         loss_coord_scale = self.lambda_coord * torch.sum(
-            obj_mask * ((torch.sqrt(bw + 1e-6) - torch.sqrt(gw_map + 1e-6)) ** 2 +
-                        (torch.sqrt(bh + 1e-6) - torch.sqrt(gh_map + 1e-6)) ** 2)
+            obj_mask * ((torch.sqrt(pred_bw + 1e-6) - torch.sqrt(ground_gw + 1e-6)) ** 2 +
+                        (torch.sqrt(pred_bh + 1e-6) - torch.sqrt(ground_gh + 1e-6)) ** 2)
         )
         
         loss_obj = torch.sum(obj_mask * (iou_map.detach() - obj_conf ) ** 2)
         loss_no_obj = self.lambda_noobj * torch.sum(no_obj_mask * (0.0 - obj_conf) ** 2)
 
-        ## loss_class = torch.sum(
-        ##    obj_mask * 
-        ## )
+        """
+        # convert gt_class_map (class index) into one-hot
+        gt_class_onehot = torch.nn.functional.one_hot(
+            gt_class_map, num_classes=self.num_classes).float()  # [B, A, S, S, C]
+        # pred_class matches shape [B, A, S, S, C]
+        pred_class = torch.softmax(class_probs, dim=-1)
+        # compute squared error 
+        loss_per_class = (pred_class - gt_class_onehot)**2
+
+        obj_mask_expanded = obj_mask.unsqueeze(-1)  # [B, A, S, S, 1]
+        
+        loss_class = torch.sum(obj_mask_expanded * loss_per_class)
+        """
 
         # Step 6: return total loss
-        total_loss = loss_coord_offset + loss_coord_scale + loss_obj + loss_no_obj ## + loss_class
 
-        return total_loss
+        total_loss = self.lambda_coord * (loss_coord_offset + loss_coord_scale) + loss_obj + self.lambda_noobj * loss_no_obj # + loss_class
+
+        ## return {'total': total_loss, 'coord': loss_coord_offset + loss_coord_scale, 'obj': loss_obj + loss_no_obj , 'cls': loss_class}
+        return {'total': total_loss, 'coord': loss_coord_offset + loss_coord_scale, 'obj': loss_obj + loss_no_obj}
 
 
 # pytorch fp32 model
@@ -265,6 +362,34 @@ def get_model():
     return model 
 
 
+def visualise_iou_anchor(image_pil, gt_box, anchor, save_path=None):
+
+    num_classes = 1 # COCO 80, but we only detect human 
+    image_size = 160 # mcunet
+    S = 5 
+
+    draw = ImageDraw.Draw(image_pil)
+    w, h = image_pil.size
+    
+    cx, cy, bw, bh, _ = gt_box.tolist()
+    xmin = (cx - bw/2) * w
+    ymin = (cy - bh/2) * h
+    xmax = (cx + bw/2) * w 
+    ymax = (cy + bh/2) * h
+
+    draw.rectangle([xmin, ymin, xmax, ymax], outline = "red", width = 2)
+    
+    aw, ah = anchor 
+    anchor_xmin = (cx - aw / 2) * w
+    anchor_ymin = (cy - ah / 2) * h
+    anchor_xmax = (cx + aw / 2) * w
+    anchor_ymax = (cy + ah / 2) * h
+
+
+    draw.rectangle([anchor_xmin, anchor_ymin, anchor_xmax, anchor_ymax], outline="blue", width=1)
+    image_pil.save(save_path)
+
+"""
 if __name__ == "__main__":
     model = McuYolo(num_classes = 80, num_anchors = 5)
     dummy_input = torch.randn(1, 3, 160, 160)
@@ -284,7 +409,7 @@ if __name__ == "__main__":
     pred = model(dummy_input)
     loss = loss_fn(pred, dummy_targets)
     print("Dummy loss:", loss.item())
-
+"""
 
 """
 # optimise 
@@ -305,15 +430,5 @@ anchors = generate_anchors(scales, ratios)
 print("Anchor Boxes:", anchors)
 """
 
-"""
-# Annotation convertion 
-def convert_to_yolo_format(width, height, bbox):
-    # Converts absolute bounding box to YOLO format.
-    x_min, y_min, x_max, y_max = bbox
-    x_center = (x_min + x_max) / 2 / width
-    y_center = (y_min + y_max) / 2 / height
-    box_width = (x_max - x_min) / width
-    box_height = (y_max - y_min) / height
-    return [x_center, y_center, box_width, box_height]
-""" 
+
 # data augmentation 
