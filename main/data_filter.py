@@ -1,13 +1,19 @@
 import json
 import os 
-from config import DATASET_ROOT
+from config import DATASET_ROOT, VOC_ROOT
+import torchvision
+from torchvision.datasets import VOCDetection
 
-def filter_annotation_by_visibility(coco_path, save_path, min_area=32*32, min_ratio=0.5):
+def filter_annotation_by_visibility(coco_path, save_path, min_ratio=0.5):
     with open(coco_path, 'r') as f:
         coco_data = json.load(f)
 
     valid_image_ids = set()
     new_annotations = []
+
+    image_id_to_size = {
+        img['id']: (img['width'], img['height']) for img in coco_data['images']
+    }
 
     for ann in coco_data['annotations']:
         if ann['category_id'] != 1: 
@@ -16,8 +22,10 @@ def filter_annotation_by_visibility(coco_path, save_path, min_area=32*32, min_ra
         bbox_area = bbox[2] * bbox[3]
         seg_area = ann['area']
 
+        width, height = image_id_to_size[ann['image_id']]
+
         # tiny object
-        if bbox_area < min_area: 
+        if bbox_area <  0.1 * (width * height): 
             continue 
 
         # occlueded object
@@ -44,7 +52,9 @@ def filter_annotation_by_visibility(coco_path, save_path, min_area=32*32, min_ra
     print(f"Oringinal dataset contains {len(coco_data['images'])} images and {len(coco_data['annotations'])} annotations.")
 
 
+
 if __name__ == "__main__":
+    """
     print("filter train dataset ...")
     # Saved filtered dataset with 42582 images and 101815 annotations.
     # Original dataset contains 118287 images and 860001 annotations.
@@ -59,4 +69,13 @@ if __name__ == "__main__":
     filter_annotation_by_visibility(
         coco_path = DATASET_ROOT + "raw/instances_val2017.json",
         save_path = DATASET_ROOT + "raw/filtered_instances_val2017.json",
+    )  
+    """ 
+
+    # download VOC dataset
+    VOCDetection(
+        root=VOC_ROOT ,
+        year="2012",
+        image_set="trainval",  # or "train" or "val"
+        download=True
     )

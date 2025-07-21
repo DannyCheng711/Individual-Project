@@ -3,10 +3,11 @@ import matplotlib.patches as patches
 from PIL import Image, ImageDraw, ImageFont
 import os
 import torchvision.transforms as transforms
+from torchvision.datasets import VOCDetection
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from config import DEVICE, DATASET_ROOT
+from config import DEVICE, DATASET_ROOT, VOC_ROOT
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 import numpy as np 
@@ -83,10 +84,18 @@ with open("coco_labels.txt", "r") as f:
 
 # Load dataset
 # image_dir, ann_file, coco_label_map, image_size=160, max_samples=None)
+"""
 train_dataset = preprocess.YoloDataset(
     image_dir = DATASET_ROOT + "train/data", 
-    ann_file =  DATASET_ROOT + "raw/instances_train2017.json", 
-    coco_label_map = coco_label_map, max_samples = 300)
+    ann_file =  DATASET_ROOT + "raw/filtered_instances_train2017.json", 
+    max_samples= None)
+"""
+
+train_voc_raw = VOCDetection(
+    root = VOC_ROOT, year = "2012", image_set = "train", download = False)
+
+train_dataset = preprocess.YoloVocDataset(train_voc_raw, image_size=160)
+
 
 train_loader = DataLoader(
     train_dataset, batch_size=1, shuffle=True)
@@ -110,10 +119,12 @@ print(anchors_pixel)
 cell_size = 160 / 5  # = 32
 anchors = [[w / cell_size, h / cell_size] for (w, h) in anchors_pixel]
 
+"""
 for idx in range(10):
     img_tensor, targets = train_dataset[idx] 
 
     img_pil = transforms.functional.to_pil_image(img_tensor.cpu())
 
-    ## visualise_anchors_vs_gt(
-    ##     img_pil, targets, anchors, save_path= f"./test/anchor_debug_{idx}.jpg")
+    visualise_anchors_vs_gt(
+        img_pil, targets, anchors, save_path= f"./test/anchor_debug_{idx}.jpg")
+"""

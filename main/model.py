@@ -1,6 +1,6 @@
 from mcunet.mcunet.model_zoo import net_id_list, build_model, download_tflite
 from torchsummary import summary 
-from config import DEVICE, DATASET_ROOT
+from config import DEVICE, DATASET_ROOT, VOC_ROOT
 import torch
 import torch.nn as nn 
 import torchvision.transforms as transforms
@@ -236,13 +236,12 @@ class Yolov2Loss(nn.Module):
         pred_bh = torch.zeros_like(pred_bx, device = DEVICE)
 
         pos_count = 0
-        saved_debug_count = 0
 
         for b in range(batch_size):
             # targets[b]: List[Tensor[num_objects, 5]] 
             # [x_center, y_center, width, height, class_id]
             for gt in targets[b]: 
-                gx, gy, gw, gh, gt_cls = gt.tolist() # [0, 1] w.r.t image size
+                gx, gy, gw, gh, gt_cls = gt.tolist() # [0, 1] image units 
 
                 # grid normalise
                 gt_box = [0, 0, gw * sw, gh * sh] # box size in grid units
@@ -260,12 +259,14 @@ class Yolov2Loss(nn.Module):
                 # print(f"[DEBUG] GT: w={gw*sw:.2f}, h={gh*sh:.2f}, Best IOU={max_iou:.3f}, Anchor ID={best_a}")
                 if max_iou > 0.5:
                     pos_count += 1
-                elif saved_debug_count < 10:
+                
+                """
+                elif self.count < 20:
                     img_pil = transforms.functional.to_pil_image(imgs[b].cpu())
-                    # visualise_iou_anchor(img_pil, gt, self.anchors[best_a], save_path =  f"./test/anchor_debug_train_{self.count}.jpg")
-                    saved_debug_count += 1
+                    visualise_iou_anchor(img_pil, gt, self.anchors[best_a], save_path =  f"./test_voc/anchor_debug_train_{self.count}.jpg")
                     self.count += 1
-
+                """
+                
                 # convert into which grid cell
                 gi = int(gx * sw) 
                 gj = int(gy * sh) 

@@ -1,4 +1,9 @@
 main/mcunet/
 main/__pycache__/
 main/images/
+main/images_voc/
 main/test/
+main/test_voc/
+main/saved_models/
+main/*.out
+main/*.txt
