@@ -101,7 +101,7 @@ class PreTrainStage():
                     ymax = (cy + bh / 2) * h 
                     # Draw box
                     draw.rectangle([xmin, ymin, xmax, ymax], outline="red", width=2)
-                    draw.text((xmin, ymin - 10), f"{top_class_name} {obj:.2f}", fill="white")
+                    draw.text((xmin, ymin - 10), f"person {obj:.2f}", fill="white")
 
         img.save(os.path.join(save_dir, f"step{step}.jpg"))
 
@@ -206,6 +206,13 @@ class PreTrainStage():
 
             if epoch % 10 == 0:
                 self.model_val(epoch)
+                
+                checkpoint = {
+                    'epoch': epoch,
+                    'model_state_dict': self.net.state_dict(),
+                    'optimizer_state_dict': self.optimiser.state_dict()
+                }
+                torch.save(checkpoint, f"./saved_models/yolovoc_150_aug_epoch_{epoch}.pth")
 
 
         return self.net, loss_log

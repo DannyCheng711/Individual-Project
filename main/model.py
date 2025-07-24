@@ -431,5 +431,3 @@ anchors = generate_anchors(scales, ratios)
 print("Anchor Boxes:", anchors)
 """
 
-
-# data augmentation 
