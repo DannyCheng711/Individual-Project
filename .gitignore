@@ -7,4 +7,8 @@ test_voc/
 saved_models/
 *.out
 *.txt
+*.pth
+*.pkl
+co3d/
+detection_result/
 

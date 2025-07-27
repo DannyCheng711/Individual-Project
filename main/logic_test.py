@@ -94,7 +94,7 @@ train_dataset = preprocess.YoloDataset(
 train_voc_raw = VOCDetection(
     root = VOC_ROOT, year = "2012", image_set = "train", download = False)
 
-train_dataset = preprocess.YoloVocDataset(train_voc_raw, image_size=160)
+train_dataset = preprocess.YoloVocDataset(train_voc_raw, dataset_name="train", image_size=160)
 
 
 train_loader = DataLoader(

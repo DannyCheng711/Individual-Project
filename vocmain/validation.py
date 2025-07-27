@@ -7,7 +7,7 @@ from torchvision.datasets import VOCDetection
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from config import DEVICE, VOC_ROOT
+from config import DEVICE, VOC_ROOT, VOC_CLASSES, VOC_CLASS_TO_IDX
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 import numpy as np 
@@ -66,7 +66,7 @@ def decode_pred(pred, anchors, num_classes, image_size, conf_thresh = 0.5):
     Decode YOLO predictions into bounding boxes.
     Args:
         pred: Tensor of shape [B, A*(5+C), S, S] 
-        anchors: tensor of shape [A, 2] in image units (e.g. [1.0, 2.0])
+        anchors: tensor of shape [A, 2] in grid units 
         num_classes: number of classes
         image_size: pixel width/height of input image
         conf_thresh: objectness threshold
@@ -99,16 +99,21 @@ def decode_pred(pred, anchors, num_classes, image_size, conf_thresh = 0.5):
             for j in range(S):
                 for a in range(A): 
 
-                    conf = obj_score[b, a, i, j]
+                    conf = obj_score[b, i, j, a]
 
                     if conf < conf_thresh: 
                         continue
                     
                     # grid unit -> image unit 
-                    cx = (j + torch.sigmoid(tx[b, a, i, j])) / S
-                    cy = (i + torch.sigmoid(ty[b, a, i, j])) / S
-                    bw = anchors[a, 0] * torch.exp(tw[b, a, i, j]) # anchor is tensor
-                    bh = anchors[a, 1] * torch.exp(th[b, a, i, j])
+                    cx_grid = j + torch.sigmoid(tx[b, i, j, a])
+                    cy_grid = i + torch.sigmoid(ty[b, i, j, a])
+                    bw_grid = anchors[a, 0] * torch.exp(tw[b, i, j, a]) # anchor is tensor
+                    bh_grid = anchors[a, 1] * torch.exp(th[b, i, j, a])
+                    
+                    cx = cx_grid / S
+                    cy = cy_grid / S
+                    bw = bw_grid / S 
+                    bh = bh_grid / S 
 
                     # convert to box 
                     xmin = (cx - bw/2) * image_size
@@ -236,6 +241,103 @@ def plot_pr_curve(recall_vals, precision_vals, ap=None, save_path=None, title="P
         plt.savefig(save_path)
         print(f"PR curve saved to {save_path}")
 
+def visualize_predictions(val_loader, model, anchors, num_samples=2, save_path="./images_voc/"):
+    """
+    Visualize model predictions vs ground truth on sample images
+    """
+
+    model.eval()
+    
+    # Convert anchors to tensor if needed
+    if isinstance(anchors, list):    
+        anchors = torch.tensor(anchors, dtype=torch.float32).to(DEVICE)
+    
+    
+    with torch.no_grad():
+        for batch_idx, (imgs, targets) in enumerate(val_loader):
+            # only check batch 0
+            if batch_idx >= 10:
+                break
+            
+            fig, axes = plt.subplots(2, 8, figsize=(24, 12))
+            axes = axes.flatten()
+            
+            imgs = imgs.to(DEVICE)
+            preds = model(imgs)
+            decoded_preds = decode_pred(preds, anchors=anchors, num_classes=num_classes, image_size=image_size)
+            
+            batch_size = imgs.shape[0]
+
+            for img_idx in range(len(imgs)):
+                
+                ax = axes[img_idx]
+                
+                # Convert image tensor to PIL for visualization
+                img_pil = transforms.functional.to_pil_image(imgs[img_idx].cpu())
+                ax.imshow(img_pil)
+                
+                # Draw ground truth boxes (green)
+                target_tensor = targets[img_idx]
+                
+                for i_grid in range(target_tensor.shape[0]):
+                    for j_grid in range(target_tensor.shape[1]):
+                        for a_idx in range(target_tensor.shape[2]):
+                            if target_tensor[i_grid, j_grid, a_idx, 4] == 1:
+                                tx = target_tensor[i_grid, j_grid, a_idx, 0].item()
+                                ty = target_tensor[i_grid, j_grid, a_idx, 1].item()
+                                tw = target_tensor[i_grid, j_grid, a_idx, 2].item()
+                                th = target_tensor[i_grid, j_grid, a_idx, 3].item()
+                                
+                                class_vector = target_tensor[i_grid, j_grid, a_idx, 5:]
+                                class_id = torch.argmax(class_vector).item()                               
+                                
+                                # Convert to pixel coordinates
+                                cx = (j_grid + tx) / target_tensor.shape[1] * image_size
+                                cy = (i_grid + ty) / target_tensor.shape[0] * image_size
+                                w = tw / target_tensor.shape[1] * image_size
+                                h = th / target_tensor.shape[0] * image_size
+                                
+                                x1 = cx - w/2
+                                y1 = cy - h/2
+                                
+                                # Draw GT box in green
+                                rect = patches.Rectangle((x1, y1), w, h, linewidth=2, 
+                                                       edgecolor='green', facecolor='none')
+                                ax.add_patch(rect)
+                                
+                                class_name = VOC_CLASSES[class_id] if class_id < len(VOC_CLASSES) else f"C{class_id}"
+                                
+                                
+                                ax.text(x1, y1-5, f'GT: {class_name}', color='green', fontweight='bold')
+                
+                # Draw prediction boxes (red)
+                
+                pred_boxes = decoded_preds[img_idx]
+                for pred in pred_boxes[:5]:  # Limit to top 5 predictions
+                    xmin, ymin, xmax, ymax, conf, class_id = pred
+                    w = xmax - xmin
+                    h = ymax - ymin
+                    
+                    # Draw pred box in red
+                    rect = patches.Rectangle((xmin, ymin), w, h, linewidth=2, 
+                                           edgecolor='red', facecolor='none')
+                    ax.add_patch(rect)
+                    
+                    class_name = VOC_CLASSES[int(class_id)] if int(class_id) < len(VOC_CLASSES) else f"C{int(class_id)}"
+                    ax.text(xmin, ymin-5, f'Pred: {class_name} ({conf:.2f})', color='red', fontweight='bold')
+                
+                ax.set_title(f'Image {img_idx}')
+                ax.axis('off')
+                
+    
+            plt.tight_layout()
+            batch_save_path = os.path.join(save_path, f"batch_{batch_idx:02d}_predictions.png")
+            plt.savefig(batch_save_path, dpi=300, bbox_inches='tight')
+            plt.close()
+
+    print(f"Prediction visualization saved to {batch_save_path}")
+
+
 
 def eval_metrics(val_loader, model, anchors, epoch = None, iou_threshold = 0.5, target_classes=None):
 
@@ -284,8 +386,8 @@ def eval_metrics(val_loader, model, anchors, epoch = None, iou_threshold = 0.5, 
                                 # Convert to normalized image coordinates
                                 cx = (j_grid + tx) / target_tensor.shape[1]
                                 cy = (i_grid + ty) / target_tensor.shape[0]
-                                w = tw
-                                h = th
+                                w = tw / target_tensor.shape[1]
+                                h = th / target_tensor.shape[0]
 
                                 gt_boxes_img.append(([cx, cy, w, h], class_id))
 
@@ -304,24 +406,21 @@ def eval_metrics(val_loader, model, anchors, epoch = None, iou_threshold = 0.5, 
                         (img_id, conf, [cx_pred, cy_pred, w_pred, h_pred], int(class_id)))
     
     # Compute all classes mAP
-    if target_classes is None:
-        map_score, class_aps =compute_map(
-            all_pred_entries, all_gt_boxes_by_img, num_classes, iou_threshold)
+    map_score, class_aps =compute_map(
+        all_pred_entries, all_gt_boxes_by_img, num_classes, iou_threshold)
 
-        print(f"\n[Validation Result]")
-        print(f"mAP@{iou_threshold}: {map_score:.4f}")
-        print("\nPer-class AP:")
-        for class_id, ap in class_aps.items():
-            print(f"  Class {class_id}: {ap:.4f}")
-        
-        return map_score
-
-    else:
-        # Compute AP for specific classes only
+    print(f"[Validation Result]")
+    print(f"mAP@{iou_threshold}: {map_score:.4f}")
+    # print("\nPer-class AP:")
+    # for class_id, ap in class_aps.items():
+    #    print(f"  Class {class_id}: {ap:.4f}")
+    
+    if target_classes:
         results = {}
         for class_id in target_classes:
             ap, recall_vals, precision_vals = compute_ap_per_class(
                 all_pred_entries, all_gt_boxes_by_img, class_id, iou_threshold)
+            
             results[class_id] = ap
             
             print(f"\n[Validation Result for Class {class_id}]")
@@ -334,6 +433,5 @@ def eval_metrics(val_loader, model, anchors, epoch = None, iou_threshold = 0.5, 
             else:
                 plot_pr_curve(recall_vals, precision_vals, ap=ap, 
                              save_path=f"./images_voc/pr_curve_class{class_id}_{epoch}.png")
-        
-        return results
+
 

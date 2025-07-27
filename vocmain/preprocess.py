@@ -16,8 +16,8 @@ class YoloVocDataset(Dataset):
             print(f"This training dataset is after augmentation")
             self.transform = transforms.Compose([
                 transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2), # color, brightness
-                transforms.RandomHorizontalFlip(p=0.5), # mirror
-                transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)), # rotation, transition, scaling
+                # transforms.RandomHorizontalFlip(p=0.5), # mirror
+                # transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)), # rotation, transition, scaling
                 transforms.Resize((image_size, image_size)),
                 transforms.ToTensor()
             ])
@@ -90,6 +90,8 @@ class YoloVocDataset(Dataset):
             cx, cy, w, h, cls = box.tolist() # image size unit 
             gi = int(cx * S)
             gj = int(cy * S) # to define the location of the grid cell 
+            w_grid = w * S
+            h_grid = h * S 
 
             # Add bounds checking
             gi = min(gi, S - 1)
@@ -98,19 +100,20 @@ class YoloVocDataset(Dataset):
             # Anchor matching (by IoU of w/h)
             best_iou = 0
             best_a = 0 
+            
             for idx, (aw, ah) in enumerate(self.anchors):
-                inter = min(w, aw) * min(h, ah) # assume locate in the same center
-                union = w * h + aw * ah - inter
+                inter = min(w_grid, aw) * min(h_grid, ah) # assume locate in the same center
+                union = w_grid * h_grid + aw * ah - inter
                 iou = inter / (union + 1e-6)
                 if iou > best_iou:
                     best_iou = iou 
                     best_a = idx
             
-            # Calculate offsets within grid cell (should be in [0,1] range image unit)
+            # Calculate offsets within grid cell (grid unit)
             tx = cx * S - gi # offset in the grid
             ty = cy * S - gj 
-            tw = w
-            th = h
+            tw = w_grid
+            th = h_grid
             
             # Create one-hot encoding for class
             onehot = torch.zeros(C)
@@ -123,4 +126,5 @@ class YoloVocDataset(Dataset):
 
             y_true[gj, gi, best_a] = target_values
         
+        # grid unit 
         return y_true

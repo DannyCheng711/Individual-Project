@@ -12,7 +12,7 @@ from config import DEVICE, VOC_ROOT
 from validation import eval_metrics
 import preprocess
 import model
-from validation import decode_pred 
+from validation import decode_pred, visualize_predictions
 
 # Setting
 num_classes = 20
@@ -28,13 +28,14 @@ anchors = [[11.579129865030023 / 32 , 23.897646887526435 / 32],
 
 class PreTrainStage():
     def __init__(self, train_voc_raw, val_voc_raw,  num_classes, image_size, epoch_num, aug):
-
+        
+        # anchor is grid unit 
         self.anchors = torch.tensor([
-            [8.851960381366869 / 32 / 5, 20.71491425034285 / 32 / 5], 
-            [27.376232242192298 / 32 / 5, 56.73302518805578 / 32 / 5], 
-            [42.88177452824786 / 32 / 5, 98.24243329589638 / 32 / 5], 
-            [67.68032082718717 / 32 / 5, 132.7704493338952 / 32 / 5], 
-            [131.16250016574756 / 32 / 5, 137.1476847579408 / 32 / 5]
+            [8.851960381366869 / 32, 20.71491425034285 / 32], 
+            [27.376232242192298 / 32, 56.73302518805578 / 32], 
+            [42.88177452824786 / 32, 98.24243329589638 / 32], 
+            [67.68032082718717 / 32, 132.7704493338952 / 32], 
+            [131.16250016574756 / 32, 137.1476847579408 / 32]
         ], dtype=torch.float32)
 
         self.num_classes = num_classes # VOC has 20 classes
@@ -180,11 +181,11 @@ class PreTrainStage():
                 # Save prediction images on last epoch
                 if epoch == self.epoch_num - 1 and i % 50 == 0:  # Save less frequently
                     for img_idx in range(min(2, imgs.size(0))):
-                        self.save_preds_image(imgs[img_idx], preds[img_idx], f"{epoch}_{i}_{img_idx}")
+                        self.save_preds_image(imgs[img_idx], preds[img_idx], epoch, i, img_idx)
 
             # Validation and checkpoint saving
             if epoch % 10 == 0:
-                self.model_val(epoch)
+                self.model_val(target_classes=[1, 5, 6], epoch=epoch)
                 
                 checkpoint = {
                     'epoch': epoch,
@@ -208,12 +209,44 @@ class PreTrainStage():
         print(f" Model saved to {model_save_path}")
     
     def load_model(self, model_path):
+        """
+        Load model from checkpoint file
+        Args:
+            model_path: path to the checkpoint file
+        Returns:
+            loaded_info: dict with epoch, loss_log info
+        """
         self.model_construct()
-        self.net.load_state_dict(torch.load(model_path, map_location=DEVICE))
-        self.net.eval() # ensures correct test-time behavior!
-        print(f"Model loaded from {model_path}")
 
-    def model_val(self, epoch = None):
+        checkpoint = torch.load(model_path, map_location=DEVICE)
+        
+        # Full checkpoint format
+        self.net.load_state_dict(checkpoint['model_state_dict'])
+    
+        # Optionally load optimizer state
+        if 'optimizer_state_dict' in checkpoint and self.optimiser is not None:
+            self.optimiser.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        # Get additional info
+        epoch = checkpoint.get('epoch', 'unknown')
+        loss_log = checkpoint.get('loss_log', None)
+    
+        print(f"Model loaded from {model_path}")
+        print(f"Checkpoint epoch: {epoch}")
+
+        if loss_log:
+            print(f"Available loss keys: {list(loss_log.keys())}")
+            print(f"Total loss entries: {len(loss_log['total'])}")
+
+        self.net.eval() # ensures correct test-time behavior!
+        
+        return {
+            'epoch': epoch, 
+            'loss_log': loss_log, 
+            'checkpoint_path': model_path
+        }
+
+    def model_val(self, target_classes=None, epoch = None):
 
         anchors_list = self.anchors.tolist()
 
@@ -229,7 +262,26 @@ class PreTrainStage():
 
         # Validation
         self.net.eval()
-        eval_metrics(val_loader, self.net, self.anchors, epoch, iou_threshold=0.5, target_classes= ["5", "6", "13"])
+
+        """
+        train_dataset = preprocess.YoloVocDataset(
+            voc_dataset=self.train_voc_raw, 
+            image_size=self.image_size,
+            S=5,  # Grid size
+            anchors=anchors_list,
+            num_classes=self.num_classes
+        )
+        train_loader = DataLoader(train_dataset, batch_size=16, shuffle=False, collate_fn=self.yolo_collate_fn)
+        """
+
+        visualize_predictions(
+            val_loader=val_loader, 
+            model=self.net, 
+            anchors=self.anchors,  # Pass tensor anchors
+            num_samples=2
+        )
+
+        eval_metrics(val_loader, self.net, self.anchors, epoch, iou_threshold=0.5, target_classes=target_classes)
 
 
 if __name__ == "__main__":
@@ -239,10 +291,12 @@ if __name__ == "__main__":
     val_voc_raw = VOCDetection(
         root=VOC_ROOT, year="2012", image_set="val", download=False)
       
-     # Fixed: Use correct num_classes
     trainer = PreTrainStage(train_voc_raw, val_voc_raw, num_classes=20, image_size=160, epoch_num=150, aug = True)
-    trainer.model_construct()
-    net, log = trainer.model_train(image_size=160)
-    trainer.train_result_save(net, log, "./images_voc/loss_plot_150_aug.png")
-    # trainer.load_model("./saved_models/yolovoc_final.pth")
+    # trainer.model_construct()
+    # net, log = trainer.model_train(image_size=160)
+    # trainer.train_result_save(net, log, "./images_voc/loss_plot_150_aug.png")
+    record = trainer.load_model("./saved_models/yolovoc_150_aug_epoch_80.pth")
+    # CORRECT: Use torch.save() to save the model
+    torch.save(trainer.net, "./saved_models/yolovoc_150_aug_epoch_80.pkl")
+    print("Model successfully saved as pkl!")
     # trainer.model_val()
