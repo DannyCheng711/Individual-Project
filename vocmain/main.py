@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 import torch
 from config import DEVICE, VOC_ROOT
-from validation import eval_metrics
+from validation import eval_metrics, eval_metrics_pkg
 import preprocess
 import model
 from validation import decode_pred, visualize_predictions
@@ -185,7 +185,7 @@ class PreTrainStage():
 
             # Validation and checkpoint saving
             if epoch % 10 == 0:
-                self.model_val(target_classes=[1, 5, 6], epoch=epoch)
+                self.model_val(epoch=epoch)
                 
                 checkpoint = {
                     'epoch': epoch,
@@ -246,7 +246,7 @@ class PreTrainStage():
             'checkpoint_path': model_path
         }
 
-    def model_val(self, target_classes=None, epoch = None):
+    def model_val(self, epoch = None, pkg = False):
 
         anchors_list = self.anchors.tolist()
 
@@ -278,10 +278,15 @@ class PreTrainStage():
             val_loader=val_loader, 
             model=self.net, 
             anchors=self.anchors,  # Pass tensor anchors
-            num_samples=2
+            conf_thresh=0.5
         )
-
-        eval_metrics(val_loader, self.net, self.anchors, epoch, iou_threshold=0.5, target_classes=target_classes)
+        if pkg:
+            map_result = eval_metrics_pkg(
+                val_loader, self.net, self.anchors, num_classes=20, device=DEVICE)
+            print(map_result)
+        else:
+            eval_metrics(
+                val_loader, self.net, self.anchors, epoch, iou_threshold=0.5)
 
 
 if __name__ == "__main__":
@@ -296,7 +301,7 @@ if __name__ == "__main__":
     # net, log = trainer.model_train(image_size=160)
     # trainer.train_result_save(net, log, "./images_voc/loss_plot_150_aug.png")
     record = trainer.load_model("./saved_models/yolovoc_150_aug_epoch_80.pth")
-    # CORRECT: Use torch.save() to save the model
-    torch.save(trainer.net, "./saved_models/yolovoc_150_aug_epoch_80.pkl")
-    print("Model successfully saved as pkl!")
-    # trainer.model_val()
+    # torch.save(trainer.net, "./saved_models/yolovoc_150_aug_epoch_80.pkl")
+    # print("Model successfully saved as pkl!")
+    trainer.model_val(pkg=False, epoch=None)
+    

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from config import DEVICE, VOC_ROOT
 
 # detection head
-# Input feature map: [B, in_channels, H, W]
+# Input feature map: [B, C, H, W]
 class YoloHead(nn.Module):
     def __init__(self, in_channels, num_classes, num_anchors):
         super().__init__()
@@ -14,7 +14,7 @@ class YoloHead(nn.Module):
         self.detector = nn.Conv2d(in_channels = in_channels, out_channels=self.output_channels, kernel_size=1) # 1x1 conv on each cell
 
     def forward(self, x):
-        # Input: [B, C, H, W] -> Output: [B, A*(5+C), H, W]
+        # Output: [B, A*(5+C), S, S]
         return self.detector(x) 
 
 # feature map  
@@ -49,7 +49,8 @@ class McuYolo(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-        # add detection head
+        # add detection head 
+        # Output: [B, A*(5+C), H, W]
         self.det_head = YoloHead(in_channels = 512, num_classes = num_classes, num_anchors=num_anchors)
 
     def forward(self, inputs, training = False):
