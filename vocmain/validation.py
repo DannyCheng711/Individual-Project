@@ -5,7 +5,7 @@ import os
 import torchvision.transforms as transforms
 import torch
 import torch.optim as optim
-from config import DEVICE, VOC_ROOT, VOC_CLASSES, VOC_CLASS_TO_IDX
+from config import DEVICE, VOC_CLASSES
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 import numpy as np 

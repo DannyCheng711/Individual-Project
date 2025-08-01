@@ -161,11 +161,17 @@ class ObjectDetector:
                         ymax = max(0, min(ymax.item(), image_size))
 
                         class_probs = class_scores[b, i, j, a]
-                        best_class_conf, best_class_id = torch.max(class_probs, dim=0)
+                        allowed_classes = [6, 13, 1]  
+                        class_probs_filtered = class_probs[allowed_classes]
+                        best_class_conf, best_class_pos = torch.max(class_probs_filtered, dim=0)
+                        best_class_id = allowed_classes[best_class_pos]
+                        ## best_class_conf, best_class_id = torch.max(class_probs, dim=0)
                         final_conf = conf * best_class_conf  # Combined confidence
                                 
+                        ## decoded_boxes.append(
+                        ##     [xmin, ymin, xmax, ymax, final_conf.item(), best_class_id.item()])
                         decoded_boxes.append(
-                            [xmin, ymin, xmax, ymax, final_conf.item(), best_class_id.item()])
+                            [xmin, ymin, xmax, ymax, final_conf.item(), best_class_id])
 
             all_decoded.append(decoded_boxes)
 
@@ -244,15 +250,15 @@ if __name__ == "__main__":
         manifest = json.load(f)
 
         for item in tqdm(manifest, desc="Retrieving Images"):
-            bbox = item['bbox']
-            # Visualize predictions
-            filename = item['occ70']
-            save_path = os.path.join(
-                    "./detection_result/car", item['seq_name'] ,f"{os.path.splitext(os.path.basename(filename))[0]}_det.jpg")
-            
-            detector.visualize_single_predictions(
-                filename, 
-                image_size=160, 
-                save_path=save_path, 
-            )
+            for filename in [item['image'], item['occ30'], item['occ50'], item['occ70']]:
+                bbox = item['bbox']
+                # Visualize predictions
+                save_path = os.path.join(
+                        "./detection_result/car", item['seq_name'] ,f"{os.path.splitext(os.path.basename(filename))[0]}_det.jpg")
+                
+                detector.visualize_single_predictions(
+                    filename, 
+                    image_size=160, 
+                    save_path=save_path, 
+                )
             
