@@ -62,6 +62,7 @@ class McuYolo(nn.Module):
         x = self.backbone.first_conv(x)
     
         # forward each block manually via for loop 
+        # skip the classifier in the pretrained backbone
         # each block is a subclass of nn.Module, and doing block(x) is equivalent to block.forward(x) 
         for i in range(self.final_block_idx + 1):
             x = self.backbone.blocks[i](x)
