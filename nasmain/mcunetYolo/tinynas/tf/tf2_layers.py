@@ -114,7 +114,7 @@ class ConvLayerPad:
                 decay=net.bn_decay,
                 param_initializer=init)
 
-            output = activation(output, 'sigmoid')
+            output = activation(output, 'relu6')
         return output
 
 

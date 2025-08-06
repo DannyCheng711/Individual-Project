@@ -38,7 +38,7 @@ def set_layer_from_config(layer_config):
 class My2DLayer(MyModule):
 
     def __init__(self, in_channels, out_channels,
-                 use_bn=True, act_func='relu', dropout_rate=0, ops_order='weight_bn_act'):
+                 use_bn=True, act_func='relu6', dropout_rate=0, ops_order='weight_bn_act'):
         super(My2DLayer, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -128,7 +128,7 @@ class ConvLayerPad(My2DLayer):
 
     def __init__(self, in_channels, out_channels,
                  kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=False, has_shuffle=False,
-                 use_bn=True, act_func='relu', dropout_rate=0, ops_order='weight_bn_act'):
+                 use_bn=True, act_func='relu6', dropout_rate=0, ops_order='weight_bn_act'):
         # default normal 3x3_Conv with bn and relu
         self.kernel_size = kernel_size
         self.stride = stride
@@ -193,7 +193,7 @@ class ConvLayer(My2DLayer):
 
     def __init__(self, in_channels, out_channels,
                  kernel_size=3, stride=1, dilation=1, groups=1, bias=False, has_shuffle=False,
-                 use_bn=True, act_func='relu', dropout_rate=0, ops_order='weight_bn_act'):
+                 use_bn=True, act_func='relu6', dropout_rate=0, ops_order='weight_bn_act'):
         # default normal 3x3_Conv with bn and relu
         self.kernel_size = kernel_size
         self.stride = stride
@@ -263,7 +263,7 @@ class DepthConvLayer(My2DLayer):
 
     def __init__(self, in_channels, out_channels,
                  kernel_size=3, stride=1, dilation=1, groups=1, bias=False, has_shuffle=False,
-                 use_bn=True, act_func='relu', dropout_rate=0, ops_order='weight_bn_act'):
+                 use_bn=True, act_func='relu6', dropout_rate=0, ops_order='weight_bn_act'):
         # default normal 3x3_DepthConv with bn and relu
         self.kernel_size = kernel_size
         self.stride = stride

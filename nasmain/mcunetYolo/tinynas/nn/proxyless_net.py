@@ -92,10 +92,10 @@ class YOLOClassifier(MyModule):
 
         if self.layer2 is not None:
             x = self.layer2(x)
-        if self.isConv:
-            x = x.permute(0, 2, 3, 1)
-        else:
-            x = x.reshape(-1, 7, 7, 30) # Traditional YOLO head v1
+        # if self.isConv:
+        #     x = x.permute(0, 2, 3, 1)
+        # else:
+        #     x = x.reshape(-1, 7, 7, 30) # Traditional YOLO head v1
         return x
 
     @property
@@ -123,7 +123,7 @@ class ProxylessNASNets(MyNetwork):
         super().__init__()
         self.first_conv = first_conv
         self.blocks = nn.ModuleList(blocks)
-        self.feature_mix_layer = feature_mix_layer
+        self.feature_mix_layer = feature_mix_layer # currently, it is None
         self.classifier = classifier
 
     def forward(self, x):

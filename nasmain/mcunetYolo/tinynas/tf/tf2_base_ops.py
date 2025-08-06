@@ -189,7 +189,7 @@ def fc_layer(_input, out_units, use_bias=False, param_initializer=None):
 def batch_norm(
         _input,
         is_training,
-        epsilon=1e-3,
+        epsilon=1e-5,
         decay=0.9,
         param_initializer=None):
     with tf.compat.v1.variable_scope('bn'):
@@ -220,6 +220,8 @@ def batch_norm(
 def activation(x, activation='relu6'):
     if activation == 'relu6':
        return tf.nn.relu6(x)
+    elif activation == 'relu':
+        return tf.nn.relu(x)
     elif activation == 'sigmoid':
         return tf.nn.sigmoid(x)
     else:

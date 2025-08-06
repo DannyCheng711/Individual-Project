@@ -18,18 +18,29 @@ class MobileInvertedResidualBlock:
 
 
 class YOLOClassifier:
-    def __init__(self, _id, S, layer1, layer2, isConv, A):
+    def __init__(self, _id, S, layer1, layer2, isConv, A, needs_intermediate_features=False):
         self.id = _id
         self.S = S
         self.A = A
         self.layer1 = layer1
         self.layer2 = layer2
         self.isConv = isConv
+        self.needs_intermediate_features = needs_intermediate_features
 
-    def build(self, _input, net, init=None, is_training=False):
+    def build(self, _input, net, init=None, is_training=False, intermediate_features=None):
         output = _input
         with tf.compat.v1.variable_scope(self.id):
-            output = self.layer1.build(output, net, init)
+            # === Pass intermediate features if needed ===
+            if self.layer1 is not None:
+                if self.needs_intermediate_features and intermediate_features is not None:
+                    print("[TF] Passing intermediate_features to YOLO head")
+                    if hasattr(self.layer1, 'build_with_intermediate'):
+                        output = self.layer1.build_with_intermediate(output, net, init, intermediate_features)
+                    else:
+                        output = self.layer1.build(output, net, init)
+                else:
+                    print("[TF] No intermediate features passed to YOLO head")
+                    output = self.layer1.build(output, net, init)
 
             if self.layer2 is not None:
                 output = self.layer2.build(output, net, init)
@@ -162,7 +173,7 @@ class YOLOClassifier:
 
 class ProxylessNASNetsTF:
 
-    def __init__(self, net_config, net_weights=None, graph=None, sess=None, is_training=True, images=None,
+    def __init__(self, net_config, net_weights=None, graph=None, sess=None, is_training=False, images=None,
                  img_size=None, n_classes=20, S=5, A=5):
         if graph is not None:
             self.graph = graph
@@ -211,7 +222,7 @@ class ProxylessNASNetsTF:
             self.sess = sess
         self.sess.run(self.global_variables_initializer)
 
-    def _define_inputs(self, slim=False, is_training=True, images=None, img_size=None):
+    def _define_inputs(self, slim=False, is_training=False, images=None, img_size=None):
         if isinstance(img_size, list) or isinstance(img_size, tuple):
             assert len(img_size) == 2
             shape = [None, img_size[0], img_size[1], 3]
@@ -260,11 +271,11 @@ class ProxylessNASNetsTF:
             
             # create mobile inverted convolution
             mobile_inverted_conv = MBInvertedConvLayer(
-                'mobile_inverted_conv',
-                block_config['mobile_inverted_conv']['out_channels'],
-                block_config['mobile_inverted_conv']['kernel_size'],
-                block_config['mobile_inverted_conv']['stride'],
-                block_config['mobile_inverted_conv']['expand_ratio'],
+                'mobile_inverted_conv', # _id
+                block_config['mobile_inverted_conv']['out_channels'], # filter num
+                block_config['mobile_inverted_conv']['kernel_size'], # kernel size
+                block_config['mobile_inverted_conv']['stride'], # stride
+                block_config['mobile_inverted_conv']['expand_ratio'], # expand ratio
             )
             # wrap in residual block
             if block_config['shortcut'] is None: # or block_config['shortcut']['name'] == 'ZeroLayer':
@@ -275,6 +286,12 @@ class ProxylessNASNetsTF:
                 'blocks/%d' %
                 i, mobile_inverted_conv, has_residual)
             output = block.build(output, self, init)
+
+            # === Store block 12 and 16 outputs ===
+            if i == 12:
+                passthrough_feat = output
+            if i == 16:
+                final_feat = output
 
         # feature mix layer
         if self.net_config['feature_mix_layer'] is not None:
@@ -303,10 +320,18 @@ class ProxylessNASNetsTF:
             layer1, # COuld be ConvLayerPad ... 
             None,
             self.net_config['classifier']['isConv'],
-            self.A
+            self.A,
+            needs_intermediate_features=True
         )
 
-        output = classifier.build(output, self, init, is_training)
+        # === Build intermediate features dict ===
+        intermediate_features = {
+            'passthrough': passthrough_feat,
+            'final': final_feat
+        }
+
+
+        output = classifier.build(output, self, init, is_training, intermediate_features)
         
         # Always return raw predictions
         return output # Shape: [1, 5, 5, 125]

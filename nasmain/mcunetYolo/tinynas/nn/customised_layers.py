@@ -9,17 +9,17 @@ class McuYoloDetectionHead(MyModule):
     
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels=320, out_channels=512, kernel_size=1),
-            nn.ReLU(inplace=True)
+            nn.ReLU6(inplace=True)
         )
 
         self.conv2 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=1),
-            nn.ReLU(inplace=True)
+            nn.ReLU6(inplace=True)
         )
         self.space_to_depth = SpaceToDepth()
         self.conv3 = nn.Sequential(
             nn.Conv2d(in_channels=512 + 384, out_channels=512, kernel_size=1),
-            nn.ReLU(inplace=True)
+            nn.ReLU6(inplace=True)
         )
         self.det_head = YoloHead(in_channels = 512, num_classes = num_classes, num_anchors = num_anchors)
 
@@ -46,10 +46,12 @@ class McuYoloDetectionHead(MyModule):
         x = self.conv2(x) # 5x5x512 -> 5x5x512
 
         if passthrough_feat is not None:
+            print("[PYTORCH] Conv3 is being used!")   # <--- log
             passthrough = self.space_to_depth(passthrough_feat)
             x = torch.cat([x, passthrough], dim=1)
             x = self.conv3(x)
-
+        else:
+            print("[PYTORCH] Conv3 is skipped!")   
         return self.det_head(x)
     
 
@@ -100,4 +102,5 @@ class YoloHead(nn.Module):
     def forward(self, x):
         return self.detector(x)
     
+
 
