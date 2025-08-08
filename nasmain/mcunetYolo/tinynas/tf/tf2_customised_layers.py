@@ -11,7 +11,7 @@ class McuYoloDetectionHeadTF:
         self.output_channels = num_anchors * (5 + num_classes) # 5 x 5 + 20 = 125
 
     # 	net = a context object (config) for the whole network 
-    def build(self, _input, net, init=None, intermediate_features = None):
+    def build(self, _input, net, init=None):
         output = _input
 
         # control variable naming 
@@ -78,8 +78,37 @@ class SpaceToDepthTF:
         self.block_size = block_size
     
     def build(self, _input, net, init=None):
+        # Input: [B, H, W, C] (TensorFlow format)
+        # Output: [B, H//block_size, W//block_size, C*block_size*block_size]    
         with tf.compat.v1.variable_scope(self.id):
-            output = tf.nn.space_to_depth(_input, self.block_size)
+            # output = tf.nn.space_to_depth(_input, self.block_size)
+            input_shape = tf.shape(_input)
+            B = input_shape[0]
+            H = input_shape[1] 
+            W = input_shape[2]
+            C = input_shape[3]
+            
+            block_size = self.block_size
+            out_H = H // block_size
+            out_W = W // block_size
+            out_C = C * (block_size * block_size)
+            
+            # Convert TF format to PyTorch format: [B, H, W, C] -> [B, C, H, W]
+            x_pt_format = tf.transpose(_input, [0, 3, 1, 2])  # [B, C, H, W]
+            
+            # Apply PyTorch space-to-depth logic:
+            # Reshape: [B, C, H, W] -> [B, C, out_H, block_size, out_W, block_size]
+            x_reshaped = tf.reshape(x_pt_format, [B, C, out_H, block_size, out_W, block_size])
+            
+            # Permute: [B, C, out_H, block_size, out_W, block_size] -> [B, C, block_size, block_size, out_H, out_W]
+            x_permuted = tf.transpose(x_reshaped, [0, 1, 3, 5, 2, 4])  # Same as PyTorch permute(0, 1, 3, 5, 2, 4)
+            
+            # Final reshape: [B, C, block_size, block_size, out_H, out_W] -> [B, out_C, out_H, out_W]
+            x_final_pt = tf.reshape(x_permuted, [B, out_C, out_H, out_W])
+            
+            # Convert back to TensorFlow format: [B, out_C, out_H, out_W] -> [B, out_H, out_W, out_C]
+            output = tf.transpose(x_final_pt, [0, 2, 3, 1])
+            
         return output
 
 

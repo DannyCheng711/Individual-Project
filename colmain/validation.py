@@ -333,6 +333,68 @@ def visualize_bbox_grid_tensors(images_view1, images_view2,
         print(f"Saved visualization grid to {chunk_save_path}")
 
 
+def visualize_bbox_grid_tensors_single_view(
+        images_view1, preds_view1, save_path="./image_result/bbox_grid_single.png", max_cols=10):
+    
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    # Convert tensors to PIL
+    images_v1 = []
+
+    for img in images_view1:
+        img = img.cpu()
+        images_v1.append(transforms.ToPILImage()(img))
+
+    total_images = len(images_v1)
+    for chunk_idx in range(0, total_images, max_cols):
+        start_col = chunk_idx
+        end_col = min(chunk_idx + max_cols, total_images)
+        cols = end_col - start_col
+
+        rows = 1
+        fig, axes = plt.subplots(rows, cols, figsize=(3*cols, 3*rows))
+
+        if cols == 1:
+            axes = [axes] # Make it a list for consistent indexing
+
+        for col in range(cols):
+            actual_col = start_col + col
+            
+            ax = axes[col]
+            img = images_v1[actual_col]
+            bboxes = preds_view1[actual_col] 
+
+            if bboxes:
+                nms_bboxes = apply_classwise_nms(pred_boxes=bboxes, iou_thresh=0.5)
+                if nms_bboxes:
+                    max_bbox= max(nms_bboxes, key=lambda x: x[4])
+                    img_with_boxes = draw_bboxes_pil(img, [max_bbox], add_scores=True)
+                else:
+                    img_with_boxes = img
+            else:
+                img_with_boxes = img
+
+            ax.imshow(img_with_boxes)
+            ax.axis('off')
+            ax.set_title(f"Image {actual_col+1}", fontsize=12)
+        
+        fig.suptitle("Single View Detection Resutls", fontsize=16, y=0.95)
+       
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.85)
+
+        base_path = save_path.replace('.png', '')
+        if chunk_idx == 0:
+            chunk_save_path = save_path
+        else:
+            chunk_num = (chunk_idx // max_cols) + 1
+            chunk_save_path = f"{base_path}_part{chunk_num}.png"
+
+        plt.savefig(chunk_save_path, dpi=300)
+        plt.close()
+        print(f"Saved single view visualization to {chunk_save_path}")
+
+
 def decode_pred(pred, anchors, num_classes, image_size, conf_thresh = 0.0):
     """
     Decode YOLO predictions into bounding boxes.

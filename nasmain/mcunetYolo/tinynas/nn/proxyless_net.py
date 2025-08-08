@@ -5,7 +5,7 @@
 import json
 
 import torch.nn as nn
-from . import *
+from .layers import *
 from ...utils import download_url, MyNetwork, MyModule
 
 __all__ = ['ProxylessNASNets', 'MobileInvertedResidualBlock', 'YOLOClassifier']

@@ -12,7 +12,7 @@ class MobileInvertedResidualBlock:
         output = _input
         with tf.compat.v1.variable_scope(self.id):
             output = self.mobile_inverted_conv.build(output, net, init)
-            if self.has_residual:
+            if self.has_residual: # residual 
                 output = output + _input
         return output
 
@@ -306,11 +306,7 @@ class ProxylessNASNetsTF:
         print("Building classifier from config ...")
 
         # Build layer1 based on config 
-        print(self.net_config['classifier'])
         layer1_config = self.net_config['classifier']['layer1']
-
-        print(layer1_config)
-
         layer1 = build_layer_from_config(layer1_config, _id = 'layer1')
         
         # Create classifier with dynamic layers
