@@ -8,7 +8,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from config import DEVICE, DATASET_ROOT, VOC_ROOT
-from validation import eval_metrics
+from validation import evaluator
 import preprocess
 import model
 import ast
@@ -237,7 +237,7 @@ class PreTrainStage():
     
         # Validation
         self.net.eval()
-        eval_metrics(val_loader, self.net, self.anchors, epoch, iou_threshold = 0.5, image_size = 160)
+        evaluator(val_loader, self.net, self.anchors, epoch, iou_threshold = 0.5, image_size = 160)
         
 
 if __name__ == "__main__":

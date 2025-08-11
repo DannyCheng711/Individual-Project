@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # import model 
 from colmain.validation import decode_pred, evaluate_pred_gt, visualize_bbox_grid_tensors_single_view, evaluate_pred_gt_handcraft, plot_pr_curves_comp
-from vocmain.preprocess import YoloVocDataset
+from vocmain._archived.__preprocess import YoloVocDataset
 # 5 views construct a batch
 # we have 20 objects, so we have 20 batches for each occlusion rate
 

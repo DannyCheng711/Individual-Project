@@ -199,9 +199,6 @@ def plot_pr_curve(recall_vals, precision_vals, ap=None, save_path=None, title="P
 def eval_metrics(val_loader, model, anchors, epoch = None, iou_threshold = 0.5, image_size = 160):
 
     model.eval()
-    ttl_tp = 0
-    ttl_fp = 0
-    ttl_fn = 0
 
     all_pred_entries = [] # list of (image_id, score, [x1, y1, x2, y2])
     all_gt_boxes_by_img = {} # dict: image_id -> list of [x1, y1, x2, y2]

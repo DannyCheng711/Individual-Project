@@ -1,21 +1,16 @@
+# Standard library
+import os
+# Third-party
 import torch
 import torch.nn as nn 
 import torch.nn.functional as F
-from config import DEVICE, VOC_ROOT
+from dotenv import load_dotenv
 
-# detection head
-# Input feature map: [B, C, H, W]
-class YoloHead(nn.Module):
-    def __init__(self, in_channels, num_classes, num_anchors):
-        super().__init__()
-        self.num_classes = num_classes
-        self.num_anchors = num_anchors
-        self.output_channels = num_anchors * (5 + num_classes)
-        self.detector = nn.Conv2d(in_channels = in_channels, out_channels=self.output_channels, kernel_size=1) # 1x1 conv on each cell
+load_dotenv()  # Loads .env from current directory
 
-    def forward(self, x):
-        # Output: [B, A*(5+C), S, S]
-        return self.detector(x) 
+DEVICE = torch.device(
+    "cuda" if os.getenv("DEVICE") == "cuda" and torch.cuda.is_available() else "cpu")
+VOC_ROOT = os.getenv("VOC_ROOT")
 
 # feature map  
 class McuYolo(nn.Module):
@@ -38,7 +33,7 @@ class McuYolo(nn.Module):
         )
 
         # space to depth
-        self.space_to_depth = SpaceToDepth() # 10×10×96 -> 5×5×384
+        self.space_to_depth = SpaceToDepth(block_size=2) # 10×10×96 -> 5×5×384
 
         # Concatenate passthrough + final, reduce channels to 512
         ## self.concat_conv = nn.Conv2d(384 + 512, 512, kernel_size=1)
@@ -51,7 +46,7 @@ class McuYolo(nn.Module):
 
         # add detection head 
         # Output: [B, A*(5+C), H, W]
-        self.det_head = YoloHead(in_channels = 512, num_classes = num_classes, num_anchors=num_anchors)
+        self.det_head = nn.Conv2d(in_channels = 512, out_channels= num_anchors * (5 + num_classes), kernel_size=1)
 
     def forward(self, inputs, training = False):
 
@@ -96,28 +91,13 @@ class McuYolo(nn.Module):
 
 # using sequential for creating the model 
 class SpaceToDepth(nn.Module):
-    def __init__(self, block_size=2):
+    def __init__(self, block_size):
         super().__init__()
-        self.block_size = block_size 
+        self.pixel_unshuffle = nn.PixelUnshuffle(block_size)
 
-    # inputs is the previous output
-    def forward(self, inputs):
-        # Input: [B, C, H, W]
-        B, C, H, W = inputs.size()
-
-        out_C = C * (self.block_size ** 2)
-        out_H = H // self.block_size
-        out_W = W // self.block_size
-
-         # Reshape: [B, C, H, W] -> [B, C, H//block_size, block_size, W//block_size, block_size]
-        inputs = inputs.reshape(B, C, out_H, self.block_size, out_W, self.block_size)
-
-        # Permute and reshape to get final output: [B, C*block_size^2, H//block_size, W//block_size]
-        inputs = inputs.permute(0, 1, 3, 5, 2, 4).contiguous()
-        inputs = inputs.reshape(B, out_C, out_H, out_W)
-
-        return inputs
-
+    def forward(self, x):
+        return self.pixel_unshuffle(x)
+    
 # Loss function
 class Yolov2Loss(nn.Module):
     def __init__(self, num_classes, anchors, lambda_coord=5.0, lambda_noobj=0.5):
@@ -260,6 +240,7 @@ class Yolov2Loss(nn.Module):
         loss_cls = torch.sum(obj_mask_expanded * class_loss_per_element)
 
         """
+        Yolov1
         lambda_coord = 5.0
         lambda_obj = 5.0
         lambda_noobj = 0.5
@@ -268,39 +249,3 @@ class Yolov2Loss(nn.Module):
         # total_loss = self.lambda_coord * (loss_xy + loss_wh) + loss_obj + self.lambda_noobj * loss_noobj + loss_cls
         # return total_loss
         return {'total': total_loss, 'coord': loss_xy + loss_wh, 'class': loss_cls, 'obj': loss_obj + loss_noobj}
-
-if __name__ == "__main__":
-    device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
-    
-    print("Creating dummy inputs ... ")
-    # Dummy input: [B, C, H, W] format in PyTorch (channels first)
-    dummy_input = torch.randn(2, 3, 160, 160).to(device)
-
-    # Dummy target: [B, S, S, A, 5+C]
-    # Assuming your grid S=5, anchors A=5, and classes C=20
-    dummy_target = torch.zeros(2, 5, 5, 5, 5 + 20).to(device)
-
-    # Put one box in one grid cell as a positive example
-    # Box: [gx, gy, gw, gh, obj=1, one-hot class vector]
-    dummy_target[0, 2, 3, 1, :5] = torch.tensor([0.5, 0.5, 0.2, 0.3, 1.0])  # box + obj
-    dummy_target[0, 2, 3, 1, 5 + 10] = 1.0  # class 10
-
-    # Backbone
-    print("Creating a backbone ... ")
-    backbone_fn, _, _ = build_model(net_id="mcunet-in4", pretrained=True)
-
-    # Model & Loss
-    print("Building a model ... ")
-    model = McuYolo(backbone_fn=backbone_fn, num_classes=20, num_anchors=5).to(device)
-    print("Building a loss function ... ")
-    anchors = torch.tensor([[1, 2], [2, 1], [1.5, 1.5], [2, 2], [1, 1]], dtype=torch.float32).to(device)
-    loss_fn = Yolov2Loss(num_classes=20, anchors=anchors)
-
-    # Forward pass
-    print("Forward pass ... ")
-    model.eval()
-    with torch.no_grad():
-        y_pred = model(dummy_input)
-        loss = loss_fn(y_pred, dummy_target)
-
-    print("Dummy loss:", loss)

@@ -1,8 +1,7 @@
 import torch 
 from torch.utils.data import Dataset
 from torchvision import transforms
-from torchvision.transforms import functional
-from config import VOC_CLASSES, VOC_CLASS_TO_IDX
+from config import VOC_CLASS_TO_IDX
 
 class YoloVocDataset(Dataset):
     def __init__(self, voc_dataset, image_size = 160, S = 5, anchors = None, num_classes = 20, aug = False):
