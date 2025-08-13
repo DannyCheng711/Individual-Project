@@ -5,6 +5,8 @@ import torch
 from torch.utils.data import DataLoader
 from dotenv import load_dotenv
 from torchmetrics.detection import MeanAveragePrecision
+from torchvision.ops import batched_nms
+
 from tqdm import tqdm
 # Local application
 from config import VOC_CLASSES
@@ -21,13 +23,16 @@ DATASET_ROOT = os.getenv("DATASET_ROOT")
 VOC_ROOT = os.getenv("VOC_ROOT")
 
 class Evaluator:
-    def __init__(self, val_voc_raw, anchors, num_classes, image_size, grid_num, batch_size):
+    def __init__(self, val_voc_raw, anchors, num_classes, image_size, grid_num, batch_size, epoch_num, save_dir, pkg):
         self.val_voc_raw = val_voc_raw
         self.anchors = anchors
         self.num_classes = num_classes
         self.image_size = image_size
         self.grid_num = grid_num
         self.batch_size = batch_size
+        self.epoch_num = epoch_num
+        self.save_dir = save_dir
+        self.pkg = pkg
 
     def yolo_collate_fn(self, batch):
         images, targets = [], []
@@ -49,15 +54,16 @@ class Evaluator:
             val_dataset, batch_size=self.batch_size, shuffle=False, collate_fn=self.yolo_collate_fn)
         return val_loader
     
-    def evaluate(self, model, epoch=None, pkg=False, iou_thresh=0.5, visual_conf_thresh=0.5):
+    def evaluate(self, model, epoch=None, iou_thresh=0.5, visual_conf_thresh=0.5):
         val_loader = self.get_val_loader()
-        visualize_predictions(val_loader, model, self.anchors, image_size=self.image_size, num_classes=self.num_classes, conf_thresh=visual_conf_thresh, save_dir="./vocmain/images_voc/")
-        if pkg:
-            map_result = self.eval_metrics_pkg(val_loader, model)
-            print(map_result)
+        if epoch == self.epoch_num - 1:
+            visualize_predictions(val_loader, model, self.anchors, image_size=self.image_size, num_classes=self.num_classes, conf_thresh=visual_conf_thresh, save_dir=self.save_dir)
+        if self.pkg:
+            map_result = self.eval_metrics_pkg(val_loader, model, num_classes=self.num_classes)
         else:
-            self.eval_metrics(val_loader, model, epoch=epoch, iou_threshold=iou_thresh, save_dir="./vocmain/images_voc/")
+            map_result = self.eval_metrics(val_loader, model, epoch=epoch, iou_threshold=iou_thresh, save_dir=self.save_dir)
 
+        return map_result
     
     def eval_metrics(self, val_loader, model, epoch = None, iou_threshold = 0.5, save_dir=None):
 
@@ -79,7 +85,7 @@ class Evaluator:
                 preds = model(imgs) # [B, A*(5+C), S, S]
                 
                 decoded_preds = decode_pred(
-                    preds, anchors=self.anchors, num_classes=self.num_classes, image_size=self.image_size, conf_thresh=0.0)
+                    preds, anchors=self.anchors, num_classes=self.num_classes, image_size=self.image_size, conf_thresh=0.01)
 
                 for img_idx in range(len(imgs)):
                     img_id = f"{b}_{img_idx}"
@@ -99,23 +105,28 @@ class Evaluator:
 
                     # Predictions (keep your NMS, then convert to normalized cxcywh)
                     pred_boxes = decoded_preds[img_idx]  # [[x1,y1,x2,y2,conf,cls], ...] in pixels
-                    nms_pred_boxes = apply_classwise_nms(pred_boxes=pred_boxes, iou_thresh=0.5) # apply nms on pred_boxes
+                    if pred_boxes.shape[0] > 0:
+                        boxes = pred_boxes[:, :4]
+                        scores = pred_boxes[:, 4]
+                        labels = pred_boxes[:, 5].long()
 
-                    if len(nms_pred_boxes):
-                        # extract xyxy pixels from NMS output
-                        pred_xyxy = torch.tensor([p[:4] for p in nms_pred_boxes], dtype=torch.float32)
-                        pred_cxcywh = xyxy_to_cxcywh_norm(pred_xyxy, self.image_size)  # normalized (N,4)
+                        keep = batched_nms(boxes, scores, labels, iou_threshold=0.5)
+                        boxes = boxes[keep]
+                        scores = scores[keep]
+                        labels = labels[keep]
+                        pred_cxcywh = xyxy_to_cxcywh_norm(boxes, self.image_size)  # normalized (N,4)
 
-                        for idx, (conf, cls_id) in enumerate((p[4], p[5]) for p in nms_pred_boxes):
+                        for idx in range(boxes.shape[0]):
                             all_pred_entries.append(
-                                (img_id, float(conf), pred_cxcywh[idx].tolist(), int(cls_id)))
-                            
+                                (img_id, float(scores[idx].item()), pred_cxcywh[idx].tolist(), int(labels[idx].item()))
+                        )
+                    
         # Compute all classes mAP
         map_score, class_aps =compute_map(
-            all_pred_entries, all_gt_boxes_by_img, self.num_classes, iou_threshold, epoch = epoch, save_dir=save_dir)
+            all_pred_entries, all_gt_boxes_by_img, self.num_classes, iou_threshold, epoch = epoch, save_dir=save_dir, last_epoch=self.epoch_num-1)
         
         results = {}
-        results['mAP'] = map_score
+        results['map50'] = map_score
 
         print(f"[Validation Result]")
         print(f"mAP@{iou_threshold}: {map_score:.4f}")
@@ -124,7 +135,7 @@ class Evaluator:
             class_name = VOC_CLASSES[class_id]
             results[class_name] = ap
 
-        return results
+        return {"full": results, "map50": float(results["map50"].item())}
 
 
     def eval_metrics_pkg(self, val_loader, model, num_classes):
@@ -140,18 +151,24 @@ class Evaluator:
                 imgs = imgs.to(DEVICE)
                 preds = model(imgs) # [B, A*(5+C), S, S] 
                 decoded_preds = decode_pred(
-                    preds, anchors=self.anchors, num_classes=num_classes, image_size=self.image_size, conf_thresh=0.0)
+                    preds, anchors=self.anchors, num_classes=num_classes, image_size=self.image_size, conf_thresh=0.01)
 
                 for img_idx in range(len(imgs)):
                     # Predictions: decoded (xyxy pixels) -> classwise NMS -> pack dict
                     pred_boxes = decoded_preds[img_idx] # [[x1,y1,x2,y2,conf,cls], ...]
-                    nms_pred_boxes = apply_classwise_nms(pred_boxes=pred_boxes, iou_thresh=0.5) # Do nms on pred_boxes
-
-                    if len(nms_pred_boxes) > 0:
+                    if pred_boxes.shape[0] > 0:
+                        boxes = pred_boxes[:, :4]
+                        scores = pred_boxes[:, 4]
+                        labels = pred_boxes[:, 5].long()
+                        # Batched NMS
+                        keep = batched_nms(boxes, scores, labels, iou_threshold=0.5)
+                        boxes = boxes[keep]
+                        scores = scores[keep]
+                        labels = labels[keep]
                         preds_list.append({
-                            "boxes": torch.tensor([[p[0], p[1], p[2], p[3]] for p in nms_pred_boxes], device=DEVICE),
-                            "scores": torch.tensor([p[4] for p in nms_pred_boxes], device=DEVICE),
-                            "labels": torch.tensor([p[5] for p in nms_pred_boxes], device=DEVICE)
+                            "boxes": boxes,
+                            "scores": scores,
+                            "labels": labels
                         })
 
                     else:
@@ -166,12 +183,12 @@ class Evaluator:
                     gt_xyxy, gt_labels = target_tensor_to_gt(target_tensor, self.image_size)
 
                     targets_list.append({
-                        "boxes": torch.tensor(gt_xyxy, device=DEVICE),
-                        "labels": torch.tensor(gt_labels, device=DEVICE)
+                        "boxes": gt_xyxy.clone().to(DEVICE),
+                        "labels": gt_labels.clone().to(DEVICE)
                     })
 
         # Compute mAP
         metric.update(preds_list, targets_list)
         results = metric.compute()
 
-        return results
+        return {"full": results, "map50": float(results["map_50"].item())}

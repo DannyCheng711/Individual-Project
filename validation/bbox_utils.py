@@ -69,7 +69,7 @@ def norm_cxcywh_to_xyxy_pixels(cxcywh, image_size):
     xyxy = torch.stack([x1, y1, x2, y2], dim=-1)
     return torch.clamp(xyxy, min=0.0, max=float(image_size))
 
-def decode_pred(pred, anchors, num_classes, image_size, conf_thresh = 0.0):
+def decode_pred_loop(pred, anchors, num_classes, image_size, conf_thresh = 0.0):
     """
     Decode YOLO predictions into bounding boxes.
     Args:
@@ -138,6 +138,93 @@ def decode_pred(pred, anchors, num_classes, image_size, conf_thresh = 0.0):
         all_decoded.append(decoded_boxes)
 
     return all_decoded
+
+def decode_pred(pred, anchors, num_classes, image_size, conf_thresh=0.0):
+    """
+    Vectorized decode YOLO predictions into bounding boxes.
+    Args:
+        pred: Tensor of shape [B, A*(5+C), S, S] 
+        anchors: tensor of shape [A, 2] in grid units 
+        num_classes: number of classes
+        image_size: pixel width/height of input image
+        conf_thresh: objectness threshold
+
+    Returns:
+        List[Tensor]: each [N, 6] for each image: [xmin, ymin, xmax, ymax, confidence, class_id]
+    """
+    B, _, S, _ = pred.shape
+    A = len(anchors)
+    C = num_classes
+
+    pred = pred.reshape(B, A, 5 + C, S, S).permute(0, 3, 4, 1, 2)  # [B, S, S, A, 5+C]
+    tx = pred[..., 0]
+    ty = pred[..., 1]
+    tw = pred[..., 2]
+    th = pred[..., 3]
+    obj_logit = pred[..., 4]
+    cls_logits = pred[..., 5:]
+
+    anchors = anchors.to(device=pred.device, dtype=pred.dtype)
+
+    # Grid offsets
+    grid_y, grid_x = torch.meshgrid(
+        torch.arange(S, device=pred.device), torch.arange(S, device=pred.device), indexing="ij"
+    )  # [S, S]
+    grid_x = grid_x.unsqueeze(-1).unsqueeze(0)  # [1, S, S, 1]
+    grid_y = grid_y.unsqueeze(-1).unsqueeze(0)  # [1, S, S, 1]
+
+    sig_tx = torch.sigmoid(tx)
+    sig_ty = torch.sigmoid(ty)
+    exp_tw = torch.exp(tw)
+    exp_th = torch.exp(th)
+    obj = torch.sigmoid(obj_logit)
+    cls_probs = torch.softmax(cls_logits, dim=-1)
+
+    # [B, S, S, A]
+    cx = (grid_x + sig_tx) / float(S)
+    cy = (grid_y + sig_ty) / float(S)
+    bw = (anchors[:, 0].view(1, 1, 1, A) * exp_tw) / float(S)
+    bh = (anchors[:, 1].view(1, 1, 1, A) * exp_th) / float(S)
+
+    # [B, S, S, A, C]
+    best_cls_prob, best_cls_id = cls_probs.max(dim=-1)
+    final_conf = obj * best_cls_prob
+
+    # Filter by conf_thresh
+    mask = final_conf > conf_thresh  # [B, S, S, A]
+    # Prepare all outputs
+    cx = cx[mask]
+    cy = cy[mask]
+    bw = bw[mask]
+    bh = bh[mask]
+    conf = final_conf[mask]
+    cls_id = best_cls_id[mask]
+
+    # Convert to xyxy in pixels
+    x1 = (cx - 0.5 * bw) * image_size
+    y1 = (cy - 0.5 * bh) * image_size
+    x2 = (cx + 0.5 * bw) * image_size
+    y2 = (cy + 0.5 * bh) * image_size
+
+    # Get batch indices for grouping
+    batch_idx = mask.nonzero(as_tuple=True)[0]
+
+    # Stack all outputs
+    all_boxes = torch.stack([x1, y1, x2, y2, conf, cls_id.float()], dim=-1)  # [N, 6]
+
+    # Split by batch
+    out = []
+    for b in range(B):
+        boxes_b = all_boxes[batch_idx == b]
+        boxes_b_list = [
+            [
+                float(bb[0].item()), float(bb[1].item()), float(bb[2].item()), float(bb[3].item()),
+                float(bb[4].item()), int(bb[5].item())
+            ]
+            for bb in boxes_b
+        ]
+        out.append(boxes_b_list)
+    return out
 
 # surpass the bbox which iou_thresh > 0.5
 def apply_classwise_nms(pred_boxes, iou_thresh=0.5):

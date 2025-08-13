@@ -33,10 +33,7 @@ class McuYolo(nn.Module):
         )
 
         # space to depth
-        self.space_to_depth = SpaceToDepth(block_size=2) # 10×10×96 -> 5×5×384
-
-        # Concatenate passthrough + final, reduce channels to 512
-        ## self.concat_conv = nn.Conv2d(384 + 512, 512, kernel_size=1)
+        self.space_to_depth = SpaceToDepth() # 10×10×96 -> 5×5×384
 
         # extra 3 conv layer: conv3
         self.conv3 = nn.Sequential(
@@ -89,15 +86,24 @@ class McuYolo(nn.Module):
             param.requires_grad = True
         print("Backbone unfrozen ...")
 
-# using sequential for creating the model 
 class SpaceToDepth(nn.Module):
-    def __init__(self, block_size):
+    """Space-to-Depth for NCHW that matches tf.nn.space_to_depth (NHWC) channel order."""
+    def __init__(self, r=2):
         super().__init__()
-        self.pixel_unshuffle = nn.PixelUnshuffle(block_size)
+        self.r = r
 
     def forward(self, x):
-        return self.pixel_unshuffle(x)
+        # x: [B,C,H,W]
+        B, C, H, W = x.shape
+        r = self.r
+        assert H % r == 0 and W % r == 0
+        Ho, Wo = H // r, W // r
+        # Move the subpixel dims in front of channels (subpixel-major), then flatten
+        # (B,C,Ho,r,Wo,r) -> (B,r,r,C,Ho,Wo) -> (B, C*r*r, Ho, Wo)
+        x = x.view(B, C, Ho, r, Wo, r).permute(0, 3, 5, 1, 2, 4).contiguous()
+        return x.view(B, C * r * r, Ho, Wo)
     
+
 # Loss function
 class Yolov2Loss(nn.Module):
     def __init__(self, num_classes, anchors, lambda_coord=5.0, lambda_noobj=0.5):

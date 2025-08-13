@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from PIL import ImageDraw
 from torchvision import transforms
+from torchvision.ops import batched_nms
 from dotenv import load_dotenv
 from config import VOC_CLASSES, VOC_ANCHORS
 from .bbox_utils import decode_pred, target_tensor_to_gt, apply_classwise_nms
@@ -65,15 +66,27 @@ def visualize_predictions(val_loader, model, anchors, image_size, num_classes,  
                     # Draw prediction boxes (red)
                     pred_boxes = decoded_preds[img_idx]
 
-                    if len(pred_boxes) > 0:
-                        nms_pred_boxes = apply_classwise_nms(pred_boxes=pred_boxes, iou_thresh=0.5)
-                        # Sort by confidence and keep top 5
-                        nms_pred_boxes = sorted(nms_pred_boxes, key=lambda x: -x[4])[:5]
-                    else:
-                        nms_pred_boxes = []
+                    if pred_boxes.shape[0] > 0:
+                        boxes = pred_boxes[:, :4]
+                        scores = pred_boxes[:, 4]
+                        labels = pred_boxes[:, 5].long()
+                        keep = batched_nms(boxes, scores, labels, iou_threshold=0.5)
+                        boxes = boxes[keep]
+                        scores = scores[keep]
+                        labels = labels[keep]
 
-                    for pred in nms_pred_boxes:
-                        xmin, ymin, xmax, ymax, conf, class_id = pred
+                         # Get top 5 by confidence
+                        if scores.numel() > 0:
+                            topk = min(5, scores.size(0))
+                            topk_scores, topk_idx = scores.topk(topk)
+                            boxes = boxes[topk_idx]
+                            scores = scores[topk_idx]
+                            labels = labels[topk_idx]
+
+                    for i in range(boxes.shape[0]):
+                        xmin, ymin, xmax, ymax = boxes[i].tolist()
+                        conf = scores[i].item()
+                        class_id = labels[i].item()
                         w = xmax - xmin
                         h = ymax - ymin
                         
@@ -87,8 +100,7 @@ def visualize_predictions(val_loader, model, anchors, image_size, num_classes,  
                     
                     ax.set_title(f'Image {img_idx}')
                     ax.axis('off')
-                    
-        
+
                 plt.tight_layout()
                 batch_save_path = os.path.join(save_dir, f"batch_{batch_idx:02d}_predictions.png")
                 plt.savefig(batch_save_path, dpi=300, bbox_inches='tight')
@@ -96,25 +108,6 @@ def visualize_predictions(val_loader, model, anchors, image_size, num_classes,  
             finally:
                 plt.close()
 
-            
-
-def save_preds_image(img_tensor, pred_tensor, epoch, batch_idx, img_idx, save_dir="./vocmain/images_voc", threshold=0.5):
-        os.makedirs(save_dir, exist_ok=True)
-        img = transforms.functional.to_pil_image(img_tensor.cpu())
-        draw = ImageDraw.Draw(img)
-        decoded_boxes = decode_pred(
-            pred_tensor.unsqueeze(0),
-            anchors=VOC_ANCHORS,
-            num_classes=len(VOC_CLASSES),
-            image_size=160,
-            conf_thresh=threshold
-        )
-        for box in decoded_boxes[0]:
-            xmin, ymin, xmax, ymax, conf, class_id = box
-            draw.rectangle([xmin, ymin, xmax, ymax], outline="red", width=2)
-            draw.text((xmin, ymin - 10), f"Class {int(class_id)}: {conf:.2f}", fill="red")
-        filename = f"epoch_{epoch}_batch_{batch_idx}_image_{img_idx}.jpg"
-        img.save(os.path.join(save_dir, filename))
 
 def plot_loss(loss_log, save_path):
     plt.figure(figsize=(10, 6))

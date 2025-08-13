@@ -126,7 +126,7 @@ def compute_ap_per_class(pred_entries, all_gt_boxes, class_id, iou_threshold=0.5
 
     return auc(recall_vals, precision_vals), recall_vals, precision_vals
 
-def compute_map(pred_entries, all_gt_boxes, num_classes, iou_threshold = 0.5, epoch = None, save_dir=None):
+def compute_map(pred_entries, all_gt_boxes, num_classes, iou_threshold = 0.5, epoch = None, save_dir=None, last_epoch=None):
     """
     Compute mean Average Precision (mAP) across all classes
     """
@@ -141,12 +141,12 @@ def compute_map(pred_entries, all_gt_boxes, num_classes, iou_threshold = 0.5, ep
         class_aps[class_id] = ap
 
         # save the pr graph
-        class_name = VOC_CLASSES[class_id]
-        title = f"Precision–Recall Curve [{class_name}] (IoU ≥ 0.5)"
-        suffix = epoch if epoch else "final"
-        plot_pr_curve(recall_vals, precision_vals, ap=ap, title=title,
-            save_dir=os.path.join(save_dir, f"pr_curve_class_{class_id}_{suffix}.png"))
-    
+        if epoch is not None and last_epoch is not None and epoch == last_epoch:
+            class_name = VOC_CLASSES[class_id]
+            title = f"Precision–Recall Curve [{class_name}] (IoU ≥ 0.5)"
+            plot_pr_curve(recall_vals, precision_vals, ap=ap, title=title,
+                save_dir=os.path.join(save_dir, f"pr_curve_class_{class_id}.png"))
+        
     map_score = np.mean(aps)
     return map_score, class_aps
 
