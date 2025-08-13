@@ -26,9 +26,9 @@ class McuYoloDetectionHeadTF:
                 output = conv2d(output, 512, 1, stride=1, param_initializer=init, use_bias=True)
                 output = activation(output, 'relu6') # cap at 6
 
-            yolo_head = YoloHeadTF('det_head', 512, self.num_classes, self.num_anchors)
-            output = yolo_head.build(output, net, init)
-            
+            with tf.compat.v1.variable_scope('det_head'):
+                output = conv2d(output, self.num_anchors * (5 + self.num_classes), 1, stride=1, param_initializer=init, use_bias=True)
+
         return output
     
     def build_with_intermediate(self, _input, net, init=None, intermediate_features=None):
@@ -52,8 +52,10 @@ class McuYoloDetectionHeadTF:
                     output = activation(output, 'relu6')
             else:
                 print("[TF] Conv3 is skipped!")
-            yolo_head = YoloHeadTF('det_head', 512, self.num_classes, self.num_anchors)
-            output = yolo_head.build(output, net, init)
+            
+            with tf.compat.v1.variable_scope('det_head'):
+                output = conv2d(output, self.num_anchors * (5 + self.num_classes), 1, stride=1, param_initializer=init, use_bias=True)
+
         return output
 
     @property
@@ -73,56 +75,16 @@ class McuYoloDetectionHeadTF:
         )
 
 class SpaceToDepthTF:
+    """
+    TensorFlow implementation of space-to-depth (pixel unshuffle), matching PyTorch's nn.PixelUnshuffle.
+    Input:  [B, H, W, C]
+    Output: [B, H//block_size, W//block_size, C*block_size*block_size]
+    """
     def __init__(self, _id, block_size=2):
         self.id = _id
         self.block_size = block_size
     
     def build(self, _input, net, init=None):
-        # Input: [B, H, W, C] (TensorFlow format)
-        # Output: [B, H//block_size, W//block_size, C*block_size*block_size]    
         with tf.compat.v1.variable_scope(self.id):
-            # output = tf.nn.space_to_depth(_input, self.block_size)
-            input_shape = tf.shape(_input)
-            B = input_shape[0]
-            H = input_shape[1] 
-            W = input_shape[2]
-            C = input_shape[3]
-            
-            block_size = self.block_size
-            out_H = H // block_size
-            out_W = W // block_size
-            out_C = C * (block_size * block_size)
-            
-            # Convert TF format to PyTorch format: [B, H, W, C] -> [B, C, H, W]
-            x_pt_format = tf.transpose(_input, [0, 3, 1, 2])  # [B, C, H, W]
-            
-            # Apply PyTorch space-to-depth logic:
-            # Reshape: [B, C, H, W] -> [B, C, out_H, block_size, out_W, block_size]
-            x_reshaped = tf.reshape(x_pt_format, [B, C, out_H, block_size, out_W, block_size])
-            
-            # Permute: [B, C, out_H, block_size, out_W, block_size] -> [B, C, block_size, block_size, out_H, out_W]
-            x_permuted = tf.transpose(x_reshaped, [0, 1, 3, 5, 2, 4])  # Same as PyTorch permute(0, 1, 3, 5, 2, 4)
-            
-            # Final reshape: [B, C, block_size, block_size, out_H, out_W] -> [B, out_C, out_H, out_W]
-            x_final_pt = tf.reshape(x_permuted, [B, out_C, out_H, out_W])
-            
-            # Convert back to TensorFlow format: [B, out_C, out_H, out_W] -> [B, out_H, out_W, out_C]
-            output = tf.transpose(x_final_pt, [0, 2, 3, 1])
-            
+            output = tf.nn.space_to_depth(_input, block_size=self.block_size)
         return output
-
-
-class YoloHeadTF:
-    def __init__(self, _id, in_channels, num_classes, num_anchors):
-        self.id = _id
-        self.in_channels = in_channels
-        self.num_classes = num_classes
-        self.num_anchors = num_anchors
-        self.output_channels = num_anchors * (5 + num_classes)
-    
-    def build(self, _input, net, init=None):
-        output = _input
-        with tf.compat.v1.variable_scope(self.id):
-            output = conv2d(output, self.output_channels, 1, stride=1, param_initializer=init, use_bias=True)
-        return output
-        

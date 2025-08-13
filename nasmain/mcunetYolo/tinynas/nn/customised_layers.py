@@ -21,7 +21,7 @@ class McuYoloDetectionHead(MyModule):
             nn.Conv2d(in_channels=512 + 384, out_channels=512, kernel_size=1),
             nn.ReLU6(inplace=True)
         )
-        self.det_head = YoloHead(in_channels = 512, num_classes = num_classes, num_anchors = num_anchors)
+        self.det_head = nn.Conv2d(in_channels = 512, out_channels= num_anchors * (5 + num_classes), kernel_size=1)
 
         self.num_classes = num_classes
         self.num_anchors = num_anchors
@@ -46,7 +46,7 @@ class McuYoloDetectionHead(MyModule):
         x = self.conv2(x) # 5x5x512 -> 5x5x512
 
         if passthrough_feat is not None:
-            print("[PYTORCH] Conv3 is being used!")   # <--- log
+            print("[PYTORCH] Conv3 is being used!") 
             passthrough = self.space_to_depth(passthrough_feat)
             x = torch.cat([x, passthrough], dim=1)
             x = self.conv3(x)
@@ -71,36 +71,21 @@ class McuYoloDetectionHead(MyModule):
         )
 
 
+# using sequential for creating the model 
 class SpaceToDepth(nn.Module):
-    def __init__(self, block_size=2):
+    """Space-to-Depth for NCHW that matches tf.nn.space_to_depth (NHWC) channel order."""
+    def __init__(self, r=2):
         super().__init__()
-        self.block_size = block_size
-    
+        self.r = r
 
-    def forward(self, inputs):
-        B, C, H, W = inputs.size()
-        out_C = C * (self.block_size ** 2)
-        out_H = H // self.block_size
-        out_W = W // self.block_size
-
-        inputs = inputs.reshape(B, C, out_H, self.block_size, out_W, self.block_size)
-        inputs = inputs.permute(0, 1, 3, 5, 2, 4).contiguous()
-        inputs = inputs.reshape(B, out_C, out_H, out_W)
-        return inputs
-
-
-# delete here later !!!
-class YoloHead(nn.Module):
-    def __init__(self, in_channels, num_classes, num_anchors):
-        super().__init__()
-        self.num_classes = num_classes
-        self.num_anchors = num_anchors
-        self.output_channels = num_anchors * (5 + num_classes)
-        self.detector = nn.Conv2d(
-            in_channels=in_channels, out_channels = self.output_channels, kernel_size=1)
-        
     def forward(self, x):
-        return self.detector(x)
+        # x: [B,C,H,W]
+        B, C, H, W = x.shape
+        r = self.r
+        assert H % r == 0 and W % r == 0
+        Ho, Wo = H // r, W // r
+        # Move the subpixel dims in front of channels (subpixel-major), then flatten
+        # (B,C,Ho,r,Wo,r) -> (B,r,r,C,Ho,Wo) -> (B, C*r*r, Ho, Wo)
+        x = x.view(B, C, Ho, r, Wo, r).permute(0, 3, 5, 1, 2, 4).contiguous()
+        return x.view(B, C * r * r, Ho, Wo)
     
-
-
