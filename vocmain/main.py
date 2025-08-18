@@ -6,6 +6,7 @@ from config import VOC_CLASSES, VOC_ANCHORS
 import torch
 from torchvision.datasets import VOCDetection
 from dotenv import load_dotenv
+from models.mcunet.mcunet.model_zoo import net_id_list, build_model
 
 load_dotenv()  # Loads .env from current directory
 
@@ -16,7 +17,7 @@ VOC_ROOT = os.getenv("VOC_ROOT")
 
 
 def train_and_save():
-    run_name = f"mcunet_S8_res256_pkg_lrdecay"
+    run_name = f"mbv2net_S5_res160_pkg_lrdecay"
     run_dir = os.path.join("./runs", run_name)
 
     train_voc_raw = VOCDetection(root=VOC_ROOT, year="2012", image_set="train", download=False)
@@ -26,14 +27,14 @@ def train_and_save():
         train_voc_raw,
         anchors=torch.tensor(VOC_ANCHORS, dtype=torch.float32),
         num_classes=len(VOC_CLASSES), 
-        image_size=256, # 128, 160, 192, 224, 256
-        grid_num=8, # 4, 5, 6, 7, 8
+        image_size=160, # 128, 160, 192, 224, 256
+        grid_num=5, # 4, 5, 6, 7, 8
         epoch_num=160,  # 160 in original paper
         batch_size=32,
         aug=False
     )
 
-    trainer.model_construct()
+    trainer.model_construct(net_id="mbv2-w0.35") # mcunet-in4
     evaluator = Evaluator(
         val_voc_raw,
         trainer.anchors,
@@ -99,3 +100,42 @@ if __name__ == "__main__":
     # evaluate_from_checkpoint("./runs/mcunet_S5_res160_pkg/best.pth", pkg=False, epoch=150)
 
     # pass
+
+    
+    # import torch
+    # import torch.nn as nn
+
+    # def print_shapes(backbone, input_size=(1, 3, 224, 224)):
+    #     x = torch.zeros(input_size)
+    #     print("input:", x.shape)
+
+    #     # Case A: MCUNet-style backbone with first_conv + blocks
+    #     if hasattr(backbone, "first_conv") and hasattr(backbone, "blocks"):
+    #         x = backbone.first_conv(x)
+    #         print("first_conv:", x.shape)
+
+    #         for i, blk in enumerate(backbone.blocks):
+    #             x = blk(x)
+    #             print(f"blocks[{i}]:", x.shape)
+
+    #     # Case B: MobileNetV2-style backbone with features (Sequential/ModuleList)
+    #     elif hasattr(backbone, "features"):
+    #         feats = backbone.features
+    #         if isinstance(feats, nn.ModuleList):
+    #             feats = nn.Sequential(*feats)
+
+    #         for i, m in enumerate(feats):
+    #             x = m(x)
+    #             print(f"features[{i}]:", x.shape)
+
+    #     else:
+    #         # fallback: iterate all children
+    #         for name, m in backbone.named_children():
+    #             x = m(x)
+    #             print(f"{name}:", x.shape)
+
+    # # Example usage
+    # backbone, _, _ = build_model(net_id="mbv2-w0.35", pretrained=True)
+    # print(backbone)
+
+    # print_shapes(backbone, input_size=(1, 3, 224, 224))

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from config import VOC_ANCHORS, VOC_CLASSES
 from dataset.vocdatset import YoloVocDataset
 from models.mcunet.mcunet.model_zoo import net_id_list, build_model
-from models.dethead.yolodet import McuYolo, Yolov2Loss
+from models.dethead.yolodet import McuYolo, Yolov2Loss, MobilenetV2Taps, McunetTaps
 from .logging import RunManager 
 
 load_dotenv()  # Loads .env from current directory
@@ -20,9 +20,9 @@ DATASET_ROOT = os.getenv("DATASET_ROOT")
 VOC_ROOT = os.getenv("VOC_ROOT")
 
 class Trainer:
-    def __init__(self, train_voc_raw, anchors, num_classes, image_size, grid_num, epoch_num, batch_size, aug, seed = 42):
+    def __init__(self, train_voc_raw, anchors, num_classes, image_size, grid_num, epoch_num, batch_size, aug):
         # anchor is grid unit 
-        self.anchors = anchors,
+        self.anchors = anchors
         self.num_classes = num_classes # VOC has 20 classes
         self.image_size = image_size # mcunet
         self.epoch_num = epoch_num  
@@ -63,12 +63,19 @@ class Trainer:
             {"params": no_decay, "weight_decay": 0.0},
         ]
     
-    def model_construct(self):
+    def model_construct(self, net_id):
         print(net_id_list)
         self.anchors = self.anchors.to(DEVICE)
-        backbone, _, _ = build_model(net_id="mcunet-in4", pretrained=True)
+        backbone, _, _ = build_model(net_id=net_id, pretrained=True)
         # Load model and loss 
-        self.model = McuYolo(backbone_fn=backbone, num_classes=self.num_classes, num_anchors=len(self.anchors)).to(DEVICE)
+        # self, taps, num_classes=20, num_anchors=5, final_ch=320, passthrough_ch=96, mid_ch=512, s2d_r=2
+        if net_id == "mbv2-w0.35":
+            taps = MobilenetV2Taps(backbone, passthrough_idx=12, final_idx=16)
+            self.model = McuYolo(taps=taps, num_classes=self.num_classes, num_anchors=len(self.anchors), final_ch=112, passthrough_ch=32, mid_ch=512).to(DEVICE)
+        if net_id == "mcunet-in4":
+            taps = McunetTaps(backbone, passthrough_idx=12, final_idx=16)
+            self.model = McuYolo(taps=taps, num_classes=self.num_classes, num_anchors=len(self.anchors), final_ch=320, passthrough_ch=96, mid_ch=512).to(DEVICE)
+
         self.criterion = Yolov2Loss(num_classes=self.num_classes, anchors=self.anchors).to(DEVICE)
         
         # AdamW + no-decay on BN/bia

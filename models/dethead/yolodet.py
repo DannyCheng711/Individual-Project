@@ -12,59 +12,90 @@ DEVICE = torch.device(
     "cuda" if os.getenv("DEVICE") == "cuda" and torch.cuda.is_available() else "cpu")
 VOC_ROOT = os.getenv("VOC_ROOT")
 
-# feature map  
-class McuYolo(nn.Module):
 
-    def __init__(self, backbone_fn, num_classes=20, num_anchors=5):
+class McunetTaps(nn.Module):
+    """Return (passthrough, final) from MCUNet: blocks[12] -> blocks[16]."""
+    # e.g., block 12: 10×10×96, block 16: 5×5×320 (for 160 input)
+    def __init__(self, backbone, passthrough_idx=12, final_idx=16):
         super().__init__()
-        self.backbone = backbone_fn
+        self.backbone = backbone
+        self.passthrough_idx = passthrough_idx
+        self.final_idx = final_idx
 
-        self.passthrough_layer_idx = 12 # block 12: 10×10×96
-        self.final_block_idx = 16 # block 16: 5×5×320
+    def forward(self, x):
+        x = self.backbone.first_conv(x)
+        passthrough = final = None
+        for i, blk in enumerate(self.backbone.blocks):
+            x = blk(x)
+            if i == self.passthrough_idx:  
+                passthrough = x
+            if i == self.final_idx: 
+                final = x
+                break
+        return passthrough, final
+
+
+class MobilenetV2Taps(nn.Module):
+    """
+    Return (passthrough, final) from MCUNet: blocks[13] -> blocks[16].
+    Use blcocks[12] (stride-16, ~14x14x32) as passthrough, features[16] (stride-32, ~7x7x112) as final. 
+    """
+   
+    def __init__(self, backbone, passthrough_idx=12, final_idx=16):
+        super().__init__()
+        self.backbone = backbone
+        self.passthrough_idx = passthrough_idx
+        self.final_idx = final_idx
+
+    def forward(self, x):
+        x = self.backbone.first_conv(x)
+        passthrough = final = None
+        for i, blk in enumerate(self.backbone.blocks):
+            x = blk(x)
+            if i == self.passthrough_idx:
+                passthrough = x
+            if i == self.final_idx:
+                final = x
+                break
+        return passthrough, final
+
+ 
+class McuYolo(nn.Module):
+    def __init__(self, taps, num_classes=20, num_anchors=5, final_ch=320, passthrough_ch=96, mid_ch=512, s2d_r=2):
+        super().__init__()
+        self.taps = taps 
 
         # extra 3 conv layer: conv1 and conv2
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels=320, out_channels=512, kernel_size=1),  # Update in_channels
+            nn.Conv2d(in_channels=final_ch, out_channels=mid_ch, kernel_size=1),  # Update in_channels
             nn.ReLU(inplace=True)
         )
         self.conv2 = nn.Sequential(
-            nn.Conv2d(512, 512, kernel_size=1),
+            nn.Conv2d(in_channels=mid_ch, out_channels=mid_ch, kernel_size=1),
             nn.ReLU(inplace=True)
         )
 
         # space to depth
         self.space_to_depth = SpaceToDepth() # 10×10×96 -> 5×5×384
+        fuse_in = mid_ch + passthrough_ch * (s2d_r ** 2)
 
         # extra 3 conv layer: conv3
         self.conv3 = nn.Sequential(
-            nn.Conv2d(in_channels=512 + 384, out_channels=512, kernel_size=1),  # Update in_channels
+            nn.Conv2d(in_channels=fuse_in, out_channels=mid_ch, kernel_size=1),  # Update in_channels
             nn.ReLU(inplace=True)
         )
 
         # add detection head 
         # Output: [B, A*(5+C), H, W]
-        self.det_head = nn.Conv2d(in_channels = 512, out_channels= num_anchors * (5 + num_classes), kernel_size=1)
+        self.det_head = nn.Conv2d(in_channels = mid_ch, out_channels= num_anchors * (5 + num_classes), kernel_size=1)
 
-    def forward(self, inputs, training = False):
+    def forward(self, inputs):
 
         x = inputs 
-        passthrough_feat = None
-
-        # First pass through the initial convolution layer
-        x = self.backbone.first_conv(x)
-    
-        # forward each block manually via for loop 
-        # skip the classifier in the pretrained backbone
-        # each block is a subclass of nn.Module, and doing block(x) is equivalent to block.forward(x) 
-        for i in range(self.final_block_idx + 1):
-            x = self.backbone.blocks[i](x)
-            if i == self.passthrough_layer_idx:
-                passthrough_feat = x 
-            if i == self.final_block_idx:
-                break
+        passthrough_feat, final_feat = self.taps(x)
 
         # head conv layers
-        x = self.conv1(x) 
+        x = self.conv1(final_feat) 
         x = self.conv2(x) 
 
         passthrough = self.space_to_depth(passthrough_feat) 
