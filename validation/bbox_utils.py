@@ -216,14 +216,7 @@ def decode_pred(pred, anchors, num_classes, image_size, conf_thresh=0.0):
     out = []
     for b in range(B):
         boxes_b = all_boxes[batch_idx == b]
-        boxes_b_list = [
-            [
-                float(bb[0].item()), float(bb[1].item()), float(bb[2].item()), float(bb[3].item()),
-                float(bb[4].item()), int(bb[5].item())
-            ]
-            for bb in boxes_b
-        ]
-        out.append(boxes_b_list)
+        out.append(boxes_b)
     return out
 
 # surpass the bbox which iou_thresh > 0.5

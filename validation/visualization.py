@@ -66,7 +66,7 @@ def visualize_predictions(val_loader, model, anchors, image_size, num_classes,  
                     # Draw prediction boxes (red)
                     pred_boxes = decoded_preds[img_idx]
 
-                    if pred_boxes.shape[0] > 0:
+                    if pred_boxes is not None and pred_boxes.shape[0] > 0:
                         boxes = pred_boxes[:, :4]
                         scores = pred_boxes[:, 4]
                         labels = pred_boxes[:, 5].long()
@@ -83,21 +83,23 @@ def visualize_predictions(val_loader, model, anchors, image_size, num_classes,  
                             scores = scores[topk_idx]
                             labels = labels[topk_idx]
 
-                    for i in range(boxes.shape[0]):
-                        xmin, ymin, xmax, ymax = boxes[i].tolist()
-                        conf = scores[i].item()
-                        class_id = labels[i].item()
-                        w = xmax - xmin
-                        h = ymax - ymin
+                        for i in range(boxes.shape[0]):
+                            xmin, ymin, xmax, ymax = boxes[i].tolist()
+                            conf = scores[i].item()
+                            class_id = labels[i].item()
+                            w = xmax - xmin
+                            h = ymax - ymin
+                            
+                            # Draw pred box in red
+                            rect = patches.Rectangle((xmin, ymin), w, h, linewidth=2, 
+                                                edgecolor='red', facecolor='none')
+                            ax.add_patch(rect)
+                            
+                            class_name = VOC_CLASSES[int(class_id)] if int(class_id) < len(VOC_CLASSES) else f"C{int(class_id)}"
+                            ax.text(xmin, ymin-5, f'Pred: {class_name} ({conf:.2f})', color='red', fontweight='bold')
+                    else:
+                        print(f"No predictions for image {img_idx}")
                         
-                        # Draw pred box in red
-                        rect = patches.Rectangle((xmin, ymin), w, h, linewidth=2, 
-                                            edgecolor='red', facecolor='none')
-                        ax.add_patch(rect)
-                        
-                        class_name = VOC_CLASSES[int(class_id)] if int(class_id) < len(VOC_CLASSES) else f"C{int(class_id)}"
-                        ax.text(xmin, ymin-5, f'Pred: {class_name} ({conf:.2f})', color='red', fontweight='bold')
-                    
                     ax.set_title(f'Image {img_idx}')
                     ax.axis('off')
 

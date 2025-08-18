@@ -10,10 +10,13 @@ saved_models/
 *.txt
 *.pth
 *.pkl
+*.tflite
+*.png
 co3d/
 detection_result/
 wbf_result/
 nas_result/
+nasmain/results
 logs/
 runs/
 

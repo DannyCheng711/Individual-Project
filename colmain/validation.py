@@ -1,18 +1,20 @@
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import os
 import torchvision.transforms as transforms
 import torch
-import torch.optim as optim
-from config import DEVICE, VOC_CLASSES
-from sklearn.cluster import KMeans
-from tqdm import tqdm
 import numpy as np 
 from sklearn.metrics import auc
 from torchmetrics.detection import MeanAveragePrecision
 from torchvision.ops import nms
+from dotenv import load_dotenv
 import cv2
+
+load_dotenv()  # Loads .env from current directory
+
+DEVICE = torch.device("cuda")
+DATASET_ROOT = os.getenv("DATASET_ROOT")
+VOC_ROOT = os.getenv("VOC_ROOT")
 
 # Setting
 num_classes = 20  # VOC has 20 classes,

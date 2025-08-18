@@ -179,6 +179,7 @@ def run_tflite_inference(tflite_path, input_images):
         if output_details[0]['dtype'] == np.int8:
             scale = output_details[0]['quantization'][0]
             zero_point = output_details[0]['quantization'][1]
+            # De-Qantize
             output = scale * (output.astype(np.float32) - zero_point)
         all_outputs.append(output)
 
