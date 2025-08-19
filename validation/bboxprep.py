@@ -240,3 +240,58 @@ def apply_classwise_nms(pred_boxes, iou_thresh=0.5):
     # -> tensor([1, 2, 5, 6, 7, 9])
     keep = torch.cat(keep)
     return [pred_boxes[i] for i in keep]
+
+def calculate_iou_cxcy(ground_box, pred_box):
+    """
+    Compute IoU between two boxes in [cx, cy, w, h] format.
+    All coordinates should be in the same unit (e.g., grid cells).
+    """
+
+    cx1, cy1, w1, h1 = ground_box
+    cx2, cy2, w2, h2 = pred_box
+
+    # convert center format to corner format 
+    x1_min = cx1 - w1 / 2
+    y1_min = cy1 - h1 / 2
+    x1_max = cx1 + w1 / 2
+    y1_max = cy1 + h1 / 2
+    
+    x2_min = cx2 - w2 / 2
+    y2_min = cy2 - h2 / 2
+    x2_max = cx2 + w2 / 2
+    y2_max = cy2 + h2 / 2
+
+    # Compute intersection
+    inter_xmin = max(x1_min, x2_min)
+    inter_ymin = max(y1_min, y2_min)
+    inter_xmax = min(x1_max, x2_max)
+    inter_ymax = min(y1_max, y2_max)
+
+    inter_w = max(0.0, inter_xmax - inter_xmin)
+    inter_h = max(0.0, inter_ymax - inter_ymin)
+    inter_area = inter_w * inter_h
+
+    # Compute union
+    area1 = w1 * h1
+    area2 = w2 * h2
+    union_area = area1 + area2 - inter_area
+
+    iou = inter_area / union_area if union_area > 0 else 0.0
+    return iou
+
+def calculate_iou_xyxy_tensor(boxes1, boxes2):
+    # boxes1: [N, 4], boxes2: [M, 4]
+    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
+
+    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N, M, 2]
+    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N, M, 2]
+
+    wh = (rb - lt).clamp(min=0)  # [N, M, 2]
+    inter = wh[:, :, 0] * wh[:, :, 1]  # [N, M]
+
+    union = area1[:, None] + area2 - inter
+    iou = inter / (union + 1e-6)
+    return iou
+
+
