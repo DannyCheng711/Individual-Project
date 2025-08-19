@@ -15,6 +15,7 @@ def iou(box1, box2):
     union = area1 + area2 - inter_area
     return inter_area / union if union > 0 else 0 
 
+# Works with Python lists for flexibility.
 def weighted_boxes_fusion(pred_boxes, iou_thr=0.55, n_models=2):
     """
     Weighted Boxes Fusion(WBF)
