@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 from dotenv import load_dotenv
+import torchvision.models as models
 
 load_dotenv()  # Loads .env from current directory
 
@@ -59,6 +60,29 @@ class MobilenetV2Taps(nn.Module):
                 break
         return passthrough, final
 
+
+class ResNet18Taps(nn.Module):
+    """Return (passthrough, final) feature maps from ResNet-18."""
+    def __init__(self, pretrained=True):
+        super().__init__()
+        resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
+        
+        # keep blocks separately
+        self.stem = nn.Sequential(
+            resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool
+        )  # -> 56×56
+        self.layer1 = resnet.layer1   # -> 56×56
+        self.layer2 = resnet.layer2   # -> 28×28
+        self.layer3 = resnet.layer3   # -> 14×14, 256ch
+        self.layer4 = resnet.layer4   # -> 7×7, 512ch
+
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        passthrough = self.layer3(x)   # passthrough
+        final = self.layer4(passthrough)   # final
+        return passthrough, final
  
 class McuYolo(nn.Module):
     def __init__(self, taps, num_classes=20, num_anchors=5, final_ch=320, passthrough_ch=96, mid_ch=512, s2d_r=2):

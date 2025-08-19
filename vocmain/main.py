@@ -4,9 +4,9 @@ from validation.evaluator import Evaluator
 from validation.visualization import plot_loss
 from config import VOC_CLASSES, VOC_ANCHORS
 import torch
+import torch.nn as nn
 from torchvision.datasets import VOCDetection
 from dotenv import load_dotenv
-from models.mcunet.mcunet.model_zoo import net_id_list, build_model
 
 load_dotenv()  # Loads .env from current directory
 
@@ -17,7 +17,7 @@ VOC_ROOT = os.getenv("VOC_ROOT")
 
 
 def train_and_save():
-    run_name = f"mbv2net_S5_res160_pkg_lrdecay"
+    run_name = f"resnet_S5_res160_norm"
     run_dir = os.path.join("./runs", run_name)
 
     train_voc_raw = VOCDetection(root=VOC_ROOT, year="2012", image_set="train", download=False)
@@ -34,7 +34,7 @@ def train_and_save():
         aug=False
     )
 
-    trainer.model_construct(net_id="mbv2-w0.35") # mcunet-in4
+    trainer.model_construct(net_id="resnet-18") # mcunet-in4, resnet-18, mbv2-w0.35
     evaluator = Evaluator(
         val_voc_raw,
         trainer.anchors,
@@ -139,3 +139,5 @@ if __name__ == "__main__":
     # print(backbone)
 
     # print_shapes(backbone, input_size=(1, 3, 224, 224))
+
+    

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from config import VOC_ANCHORS, VOC_CLASSES
 from dataset.vocdatset import YoloVocDataset
 from models.mcunet.mcunet.model_zoo import net_id_list, build_model
-from models.dethead.yolodet import McuYolo, Yolov2Loss, MobilenetV2Taps, McunetTaps
+from models.dethead.yolodet import McuYolo, Yolov2Loss, MobilenetV2Taps, McunetTaps, ResNet18Taps
 from .logging import RunManager 
 
 load_dotenv()  # Loads .env from current directory
@@ -66,15 +66,19 @@ class Trainer:
     def model_construct(self, net_id):
         print(net_id_list)
         self.anchors = self.anchors.to(DEVICE)
-        backbone, _, _ = build_model(net_id=net_id, pretrained=True)
         # Load model and loss 
         # self, taps, num_classes=20, num_anchors=5, final_ch=320, passthrough_ch=96, mid_ch=512, s2d_r=2
         if net_id == "mbv2-w0.35":
+            backbone, _, _ = build_model(net_id=net_id, pretrained=True)
             taps = MobilenetV2Taps(backbone, passthrough_idx=12, final_idx=16)
             self.model = McuYolo(taps=taps, num_classes=self.num_classes, num_anchors=len(self.anchors), final_ch=112, passthrough_ch=32, mid_ch=512).to(DEVICE)
         if net_id == "mcunet-in4":
+            backbone, _, _ = build_model(net_id=net_id, pretrained=True)
             taps = McunetTaps(backbone, passthrough_idx=12, final_idx=16)
             self.model = McuYolo(taps=taps, num_classes=self.num_classes, num_anchors=len(self.anchors), final_ch=320, passthrough_ch=96, mid_ch=512).to(DEVICE)
+        if net_id == "resnet-18":
+            taps = ResNet18Taps(pretrained=True)
+            self.model = McuYolo(taps=taps, num_classes=self.num_classes, num_anchors=len(self.anchors), final_ch=512, passthrough_ch=256, mid_ch=512).to(DEVICE)
 
         self.criterion = Yolov2Loss(num_classes=self.num_classes, anchors=self.anchors).to(DEVICE)
         

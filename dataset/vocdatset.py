@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 from config import VOC_CLASS_TO_IDX
+from PIL import Image
 
 class YoloVocDataset(Dataset):
     def __init__(self, voc_dataset, image_size = 160, S = 5, anchors = None, num_classes = 20, aug = False):
@@ -18,14 +19,15 @@ class YoloVocDataset(Dataset):
                 # transforms.RandomHorizontalFlip(p=0.5), # mirror
                 # transforms.RandomAffine(degrees=5, translate=(0.1, 0.1), scale=(0.9, 1.1)), # rotation, transition, scaling
                 transforms.Resize((image_size, image_size)),
-                transforms.ToTensor()
+                transforms.ToTensor(),
+                transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
             ])
-
-
+        
         else:
             self.transform = transforms.Compose([
                 transforms.Resize((image_size, image_size)),
-                transforms.ToTensor()
+                transforms.ToTensor(),
+                transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]) # imagenet normalisation
             ])
 
     def __len__(self):
