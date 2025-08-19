@@ -7,8 +7,8 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .preprocess.prepro_config import fix_state_dict_keys 
-from .mcunetYolo.tinynas.nn.proxyless_net import ProxylessNASNets
+from utils.config_utils import fix_state_dict_keys 
+from models.mcunetYolo.tinynas.nn.proxyless_net import ProxylessNASNets
 
 
 load_dotenv()  # Loads .env from current directory
