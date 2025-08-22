@@ -25,8 +25,7 @@ def process_image(image_paths, ground_truths, image_size):
         resized_gt = [x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y, class_id]
         resized_gts.append([resized_gt])
 
-    # all_images = torch.stack(processed_images).to(DEVICE)
-    all_images = torch.stack(processed_images).to('cpu')
+    all_images = torch.stack(processed_images)
 
     return all_images, resized_gts
 

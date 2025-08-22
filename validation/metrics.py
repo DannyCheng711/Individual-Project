@@ -231,7 +231,7 @@ def eval_metrics_pkg(val_loader, model, image_size):
             imgs = imgs.to(DEVICE)
             preds = model(imgs) # [B, A*(5+C), S, S] 
             decoded_preds = decode_pred(
-                preds, anchors=torch.tensor(torch.tensor(VOC_ANCHORS, dtype=torch.float32), dtype=torch.float32), num_classes=len(VOC_CLASSES), image_size=image_size, conf_thresh=0.01)
+                preds, anchors=torch.tensor(VOC_ANCHORS, dtype=torch.float32), num_classes=len(VOC_CLASSES), image_size=image_size, conf_thresh=0.01)
 
             for img_idx in range(len(imgs)):
                 # Predictions: decoded (xyxy pixels) -> classwise NMS -> pack dict
