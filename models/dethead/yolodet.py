@@ -7,6 +7,9 @@ import torch.nn.functional as F
 from dotenv import load_dotenv
 import torchvision.models as models
 
+from models.mcunet.mcunet.model_zoo import build_model
+
+
 load_dotenv()  # Loads .env from current directory
 
 DEVICE = torch.device(
@@ -310,3 +313,4 @@ class Yolov2Loss(nn.Module):
         # total_loss = self.lambda_coord * (loss_xy + loss_wh) + loss_obj + self.lambda_noobj * loss_noobj + loss_cls
         # return total_loss
         return {'total': total_loss, 'coord': loss_xy + loss_wh, 'class': loss_cls, 'obj': loss_obj + loss_noobj}
+
