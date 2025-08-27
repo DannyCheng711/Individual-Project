@@ -9,7 +9,8 @@ import numpy as np
 
 from utils.config_utils import fix_state_dict_keys 
 from models.mcunetYolo.tinynas.nn.proxyless_net import ProxylessNASNets
-
+from models.mcunet.mcunet.model_zoo import build_model
+from models.dethead.yolodet import McunetTaps, MobilenetV2Taps, ResNet18Taps, McuYolo
 
 load_dotenv()  # Loads .env from current directory
 
@@ -102,10 +103,57 @@ def quick_profile(model, image_size=160, run_dir=None, device="cuda", extra=None
               f"PeakMem={human_bytes(peak_mem_alloc)} (alloc)")
         
 
-if __name__ == "__main__":
+def make_detector(net_id, num_classes=20, num_anchors=5):
     
-    # for grid_num in [4, 5, 6, 7, 8]:
-    #     for image_size in [128, 160, 192, 224, 256]:
+    if net_id == "mbv2-w0.35":
+        backbone, _, _ = build_model(net_id=net_id, pretrained=True)
+        taps = MobilenetV2Taps(backbone, passthrough_idx=12, final_idx=16)
+        model = McuYolo(taps=taps, num_classes=num_classes, num_anchors=num_anchors, final_ch=112, passthrough_ch=32, mid_ch=512).to(DEVICE)
+    if net_id == "mcunet-in4":
+        backbone, _, _ = build_model(net_id=net_id, pretrained=True)
+        taps = McunetTaps(backbone, passthrough_idx=12, final_idx=16)
+        model = McuYolo(taps=taps, num_classes=num_classes, num_anchors=num_anchors, final_ch=320, passthrough_ch=96, mid_ch=512).to(DEVICE)
+    if net_id == "resnet-18":
+        taps = ResNet18Taps(pretrained=True)
+        model = McuYolo(taps=taps, num_classes=num_classes, num_anchors=num_anchors, final_ch=512, passthrough_ch=256, mid_ch=512).to(DEVICE)
+
+    return model
+
+
+if __name__ == "__main__":
+
+    """ ==== Profiling Different Backbone ==== """
+    # for net_id in ["mbv2-w0.35", "resnet-18"]:
+    #     # 1. Build model (architecture only, random init)
+    #     model = make_detector(net_id, num_classes=20, num_anchors=5)
+
+    #     # 2. Load weights from checkpoint
+    #     if net_id == "mcunet-in4":
+    #         run_dir = f"runs/mcunet_S5_res160_pkg_lrdecay"
+    #     if net_id == "mbv2-w0.35":
+    #         run_dir = f"runs/mbv2net_S5_res160_pkg_lrdecay"
+    #     if net_id == "resnet-18":
+    #         run_dir = f"runs/resnet_S5_res160_pkg_lrdecay"
+        
+
+    #     checkpoint = torch.load(os.path.join(run_dir, "best.pth"), map_location='cuda')
+
+    #     # In case the checkpoint was saved as {"model": state_dict, "optimizer": ..., "epoch": ...}
+    #     if "model" in checkpoint:
+    #         state_dict = checkpoint["model"]
+
+    #     # 3. Apply weights to model
+    #     model.load_state_dict(state_dict)
+
+    #     # 4. Switch to eval mode
+    #     model.eval()
+    #     quick_profile(model, image_size=160, run_dir=run_dir, 
+    #         device=("cuda" if torch.cuda.is_available() else "cpu"), extra=None)
+            
+    
+    """ ==== Profiling MCUNet ==== """
+    # for grid_num in [6]:
+    #     for image_size in [192]:
 
     #         run_dir = f"runs/mcunet_S{grid_num}_res{image_size}_pkg_lrdecay"
     #         extra = {"backbone": "mcunet-in4", "head": "yolov2", "S": grid_num}
@@ -127,27 +175,67 @@ if __name__ == "__main__":
             
     """ ==== Draw the Figure ==== """
 
-    resolutions = ["128x128", "160x160", "192x192", "224x224", "256x256"]
-    mAP = [0.2055, 0.2575, 0.2745, 0.3052, 0.3096]
-    flops = [205.41, 320.95, 462.17, 629.07, 821.64]  # in M
-    ram = [39.7, 40.8, 42.1, 43.7, 45.5]  # MB
+    # resolutions = ["128x128", "160x160", "192x192", "224x224", "256x256"]
+    # mAP = [0.2055, 0.2575, 0.2780, 0.3052, 0.3096]
+    # flops = [205.41, 320.95, 462.17, 629.07, 821.64]  # in M
+    # ram = [39.7, 40.8, 42.1, 43.7, 45.5]  # MB # alloc
 
-    x = np.array(flops)
-    y = np.array(mAP)
+    # x = np.array(flops)
+    # y = np.array(mAP)
 
-    plt.figure(figsize=(7, 5))
+    # plt.figure(figsize=(7, 5))
 
-    # Scatter + line
-    plt.plot(x, y, "-o", color="red", label="Input Resolution")
+    # # Scatter + line
+    # plt.plot(x, y, "-o", color="red", label="Input Resolution")
 
-    # Annotate each point
-    for px, py, res in zip(x, y, resolutions):
-        plt.text(px * 1.02, py, f"{res}", fontsize=8, va="center")
+    # # Annotate each point
+    # for px, py, res in zip(x, y, resolutions):
+    #     plt.text(px * 1.02, py, f"{res}", fontsize=8, va="center")
 
-    plt.xlabel("FLOPs (Millions)")
-    plt.ylabel("mAP@0.5")
-    plt.grid(True, linestyle="--", alpha=0.5)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("./nasmain/flops_vs_map.png", dpi=300)
+    # plt.xlabel("FLOPs (Millions)")
+    # plt.ylabel("mAP@0.5")
+    # plt.grid(True, linestyle="--", alpha=0.5)
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig("./nasmain/profile/flops_vs_map.png", dpi=300)
+
+    """ ==== Draw the Different Backbone Comparison Figure ==== """
+
+    # ==== Data (edit these) ====
+
+    backbones = ["MCUNet", "MobileNetV2", "ResNet-18"]
+    params_m = [2.362, 0.963, 12.553]          # Params (M)
+    flops_m  = [320.952, 99.009, 1929]           # FLOPs (Millions) @160x160 
+    peak_ram = [40.8, 21.8, 227.2]           # Peak RAM (MB) (host estimate or on-device)
+    map50    = [0.2575, 0.1890, 0.1832]    # mAP@0.5
+
+    metrics = [
+        ("Params (M)", params_m, "{:.2f}"),
+        ("FLOPs (M)", flops_m,  "{:.0f}"),
+        ("Peak RAM (MB)", peak_ram, "{:.0f}"),
+        ("mAP@0.5", map50, "{:.3f}"),
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=False)
+
+    for ax, (title, values, fmt) in zip(axes.flatten(), metrics):
+        color = "#FFA500" if title == "mAP@0.5" else "#8B8989"
+        bars = ax.bar(backbones, values, width=0.4, color=color)
+        ax.set_title(title, fontsize=14)
+        ax.set_xticklabels(backbones, rotation=25, ha='right', fontsize=12)
+        ax.tick_params(axis='y', labelsize=12)   # y-axis tick labels size
+    
+        ymax = max(values) if max(values) > 0 else 1.0
+        ax.set_ylim(0, ymax * 1.1)  
+        for b, v in zip(bars, values):
+            ax.text(
+                b.get_x() + b.get_width()/2, 
+                v + 0.0005*ymax, 
+                fmt.format(v),
+                ha='center', va='bottom', fontsize=14
+            )
+
+    # plt.suptitle("Backbone Comparison across Metrics", fontsize=15)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.savefig("./nasmain/profile/backbone_comparison.png", dpi=300)
     plt.show()

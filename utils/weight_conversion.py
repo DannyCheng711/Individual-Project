@@ -2,18 +2,12 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1' # on cpu
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-
 import numpy as np 
-import json, sys, random
+import random
 from dotenv import load_dotenv
 from torchvision.datasets import VOCDetection
 import tensorflow as tf
 import torch
-
-# Add parent directory to Python path for imports (temporary using colmain.validation)
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# import model 
 from config import VOC_ANCHORS
 from dataset.vocdatset import YoloVocDataset
 
@@ -24,19 +18,20 @@ DEVICE = torch.device(
 DATASET_ROOT = os.getenv("DATASET_ROOT")
 VOC_ROOT = os.getenv("VOC_ROOT")
 
+def get_dir_size(path):
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            total += os.path.getsize(fp)
+    return total
 
-"""===== TFLite Model Methods ====="""
-def convert_tf_to_tflite_from_session(tf_detector, image_size = None, grid_num = None):
+def convert_tf_to_tflite_from_session(tf_detector, tflite_path, image_size = None, grid_num = None):
     # Get TF session and model components 
     sess = tf_detector.sess
     graph = tf_detector.graph
     input_placeholder = tf_detector.tf_input_placeholder
     output_tensor = tf_detector.tf_model.logits
-
-    # if isinstance(sample_input, torch.Tensor):
-    #     tf_input = sample_input.detach().cpu().numpy().transpose(0, 2, 3, 1)
-    # else:
-    #     tf_input = np.transpose(sample_input, (0, 2, 3, 1))
 
     with graph.as_default():
         converter = tf.compat.v1.lite.TFLiteConverter.from_session(
@@ -59,60 +54,17 @@ def convert_tf_to_tflite_from_session(tf_detector, image_size = None, grid_num =
         # Convert the model 
         try:
             tflite_model = converter.convert()
-            
-            tflite_path = "yolo_mcunet_model.tflite"
-            with open(tflite_path, "wb") as f:
+            tflite_model_path = os.path.join(tflite_path, "yolo_mcunet_model.tflite")
+            with open(tflite_model_path, "wb") as f:
                 f.write(tflite_model)
             
-            print(f" TFLite Model Saved To: {tflite_path}")
-            print(f" Model Size: {len(tflite_model) / 1024:.2f} KB")
-
-            # test_tflite_model(tflite_path, tf_input)
-
+            print(f" TFLite Model Saved To: {tflite_model_path}")
+            
             return tflite_model
         
         except Exception as e:
             print(f" TFLite conversion failed: {e}")
             return None
-        
-def test_tflite_model(tflite_path, tf_input):
-    try:
-        # Load TFLite model and allocate tensors
-        interpreter = tf.lite.Interpreter(model_path=tflite_path)
-        interpreter.allocate_tensors()
-
-        # Get input and output tensors 
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-
-        print("TFLite Model Details: ")
-        print(f" Input shape: {input_details[0]['shape']}")
-        print(f" Input dtype: {input_details[0]['dtype']}")
-        print(f" Output shape: {output_details[0]['shape']}")
-        print(f" Output dtype: {output_details[0]['dtype']}")
-
-        # Prepare input data
-        input_data = tf_input.astype(input_details[0]['dtype'])
-
-        # Set input tensor
-        interpreter.set_tensor(input_details[0]['index'], input_data)
-
-        # Run inference
-        interpreter.invoke()
-
-        # Get output
-        tflite_output = interpreter.get_tensor(output_details[0]['index'])
-
-        print(f" TFLite inference successful!")
-        print(f" Output shape: {tflite_output.shape}")
-        print(f" Output range: [{tflite_output.min():.4f}, {tflite_output.max():.4f}]")
-        
-        return tflite_output
-        
-    except Exception as e:
-        print(f" TFLite testing failed: {e}")
-        return None
-
 
 def representative_dataset_generator_voc(num_samples, image_size, grid_num):
     train_voc_raw = VOCDetection(
