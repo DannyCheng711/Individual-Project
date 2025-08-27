@@ -72,6 +72,3 @@ print(f" mAP@50: {results['map50']:.4f}")
 print(f" Estimated FP32 model size: {fp32_model_size_bytes / 1024:.2f} KB ({fp32_model_size_bytes / (1024*1024):.2f} MB)")
 print(f" Estimated INT8 model size: {len(tflite_model) / 1024:.2f} KB ({len(tflite_model) / (1024*1024):.2f} MB)")
 
-# visualize_bbox_grid_tensors_single_view(
-#     all_images, class_preds, save_path=f"./nasmain/nas_result/bbox_grid_single_view.png"
-# )
