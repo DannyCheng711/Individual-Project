@@ -6,7 +6,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from dotenv import load_dotenv
-from config import VOC_ANCHORS, VOC_CLASSES
 from dataset.vocdatset import YoloVocDataset
 from models.mcunet.mcunet.model_zoo import net_id_list, build_model
 from models.dethead.yolodet import McuYolo, Yolov2Loss, MobilenetV2Taps, McunetTaps, ResNet18Taps
