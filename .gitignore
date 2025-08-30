@@ -13,9 +13,7 @@ saved_models/
 *.tflite
 *.png
 co3d/
-detection_result/
-wbf_result/
-nas_result/
+**/result/
 nasmain/results
 logs/
 runs/

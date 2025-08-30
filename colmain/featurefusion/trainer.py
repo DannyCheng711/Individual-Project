@@ -1,17 +1,14 @@
 import os
-import random 
-import numpy as np
 import torch
-import itertools
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision.datasets import VOCDetection
 
-
 from dataset.vocdatset import MultiViewYoloVocDataset
 from models.dethead.yolodet import Yolov2Loss 
 from models.dethead.mvyolodet import MultiViewMcuYolo
-from .logging import RunManager 
+from models.dethead.mvdet_test import MultiViewYolo
+from ..logging import RunManager 
 from dotenv import load_dotenv
 from config import VOC_CLASSES, VOC_ANCHORS, VOC_CLASS_TO_IDX
 from validation.visualization import plot_loss
@@ -73,22 +70,6 @@ class MultiViewTrainer:
             {"params": no_decay, "weight_decay": 0.0},
         ]
     
-    def param_groups_no_decay_two(self, mA, mB, wd):
-        decay, no_decay, seen = [], [], set()
-        for name, p in itertools.chain(mA.named_parameters(), mB.named_parameters()):
-            if not p.requires_grad:
-                continue
-            if id(p) in seen:
-                continue
-            seen.add(id(p))
-            if p.ndim == 1 or name.endswith(".bias"):
-                no_decay.append(p)
-            else:
-                decay.append(p)
-        return [
-            {"params": decay, "weight_decay": wd},
-            {"params": no_decay, "weight_decay": 0.0},
-        ]
     
     def model_construct(self):
         self.anchors = self.anchors.to(DEVICE)
@@ -107,7 +88,7 @@ class MultiViewTrainer:
         E, W = self.epoch_num, self.warmup_epochs
         # eta_min: lowerbound of the learning rate
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=E - W, eta_min=self.eta_min
+            self.optimizer, T_max=15 - W, eta_min=self.eta_min # 15 is more robust in occlusion scenario
         )
  
     def get_train_loader(self):
@@ -160,6 +141,7 @@ class MultiViewTrainer:
                 targets_b = targets_b.to(DEVICE)
 
                 preds, _ = self.system(imgs_a, imgs_b, feature_pass_mode=False)
+                # preds = self.system(imgs_a, imgs_b)
 
                 loss_a = self.criterion(preds, targets_a, imgs=imgs_a)
                 loss_b = self.criterion(preds, targets_b, imgs=imgs_b)
@@ -215,7 +197,7 @@ class MultiViewTrainer:
             # validation
             val_map50 = None
             if evaluator is not None:
-                val_result = evaluator.evaluate_multiview(self.system, epoch=epoch)  # make it return dict
+                val_result = evaluator.evaluate_multiview(self.system) 
                 # expect: {"mAP": float, "Recall": float, ...}
                 val_map50 = float(val_result.get("map50", 0.0))
 
@@ -264,16 +246,26 @@ class MultiViewTrainer:
 
 if __name__ == "__main__":
 
+    grid_num = 5
+    image_size = 160
+    epoch_num = 1
+
+    run_name = f"multiview_S{grid_num}_res{image_size}"
+    base_run_dir = os.path.join("./colmain/featurefusion/runs", run_name)
+    os.makedirs(base_run_dir, exist_ok=True)
+    eval_dir = os.path.join(base_run_dir, "eval")
+    os.makedirs(eval_dir, exist_ok=True)
+    logs_dir = os.path.join(base_run_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    loss_plot_path = os.path.join(base_run_dir, f"loss_plot_{run_name}.png")
+    final_model_path = os.path.join(base_run_dir, "multiview_yolo_final.pth")
+
     train_voc_raw = VOCDetection(
         root=VOC_ROOT, year="2012", image_set="train", download=False)
     
     # 2. Set anchors, classes, and other parameters
     anchors = torch.tensor(VOC_ANCHORS, dtype=torch.float32)  # shape [A, 2]
     num_classes = len(VOC_CLASS_TO_IDX)
-    image_size = 160
-    grid_num = 5
-    epoch_num = 160
-    batch_size = 32
 
     # 3. Initialize the trainer
     trainer = MultiViewTrainer(
@@ -283,7 +275,7 @@ if __name__ == "__main__":
         image_size=image_size,
         grid_num=grid_num,
         epoch_num=epoch_num,
-        batch_size=batch_size,
+        batch_size=32,
         detach_peer=False
     )
 
@@ -302,17 +294,17 @@ if __name__ == "__main__":
         grid_num=trainer.grid_num,
         batch_size=16, 
         epoch_num=trainer.epoch_num,
-        save_dir="./multiview_yolo_eval",
+        save_dir=eval_dir,
         pkg=True
     )
 
     trained_model, loss_log = trainer.model_train(
         evaluator=evaluator, 
-        model_path="./multiview_yolo_logs"
+        model_path=base_run_dir,
     )
 
     # 6. Save or use the trained_model as needed
-    torch.save(trained_model.state_dict(), "multiview_yolo_final.pth")
+    torch.save(trained_model.state_dict(), final_model_path)
 
-    plot_loss(loss_log, os.path.join(f"./colmain/loss_plot_{trainer.epoch_num}_ft.png"))
+    plot_loss(loss_log, loss_plot_path)
     print("Training complete. Loss plot saved.")

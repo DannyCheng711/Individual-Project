@@ -5,13 +5,14 @@ from config import VOC_ANCHORS, VOC_CLASSES, VOC_CLASS_TO_IDX
 import json 
 from dotenv import load_dotenv
 from models.mcunetYolo.tinynas.nn.proxyless_net import ProxylessNASNets
-from models.dethead.mvyolodet import MultiViewYolo
+from models.dethead.mvyolodet import MultiViewMcuYolo
+from models.dethead.mvdet_test import MultiViewYolo
 from utils.config_utils import fix_state_dict_keys
 from utils.image_utils import process_image, filter_class_only
 from validation.bboxprep import decode_pred
 from validation.metrics import eval_metric_col, eval_metric_col_handcraft
 from validation.visualization import visualize_bbox_grid_tensors, plot_pr_curves_comp
-from .fusion import weighted_boxes_fusion
+from ..wbf.fusion import weighted_boxes_fusion
 
 load_dotenv()  # Loads .env from current directory
 
@@ -36,18 +37,19 @@ pytorch_model.eval()
 pytorch_model.load_state_dict(fixed_state_dict)
 pytorch_model.to(DEVICE) 
 
-ft_state_dict = torch.load("./multiview_yolo_final.pth", map_location='cuda')
+# ft_state_dict = torch.load("./multiview_yolo_final.pth", map_location='cuda')
 
-multiv_model = MultiViewYolo(
+ft_state_dict = torch.load("./multiview_yolo_new_logs/best.pth", map_location='cuda')
+
+multiv_model = MultiViewMcuYolo(
     num_classes=len(VOC_CLASSES), num_anchors=5, final_ch=320, 
     passthrough_ch=96, mid_ch=512).to(DEVICE)
 
 # 3. Apply weights to model
-multiv_model.load_state_dict(ft_state_dict)
+multiv_model.load_state_dict(ft_state_dict['model'])
 
 # 4. Switch to eval mode
 multiv_model.eval()
-
 
 base_path = "./colmain/co3d/car"
 
@@ -57,10 +59,10 @@ with open(os.path.join(base_path, "manifest_with_occ.json"), 'r') as f:
 occlusion_combination = [
     ("occ30", "occ30"),
     ("occ30", "occ50"), 
-    # ("occ30", "occ70"), 
+    ("occ30", "occ70"), 
     ("occ50", "occ50"),
-    # ("occ50", "occ70"), 
-    # ("occ70", "occ70")
+    ("occ50", "occ70"), 
+    ("occ70", "occ70")
 ]
 
 for occ_comb1, occ_comb2 in occlusion_combination:
@@ -104,7 +106,8 @@ for occ_comb1, occ_comb2 in occlusion_combination:
     with torch.no_grad():
         preds1 = pytorch_model(all_images1) # [All images, A*(5+C), S, S]
         preds2 = pytorch_model(all_images2) # [All images, A*(5+C), S, S]
-        ft_pred = multiv_model(all_images1, all_images2)
+        ft_pred, _ = multiv_model(all_images1, all_images2)
+        # ft_pred = multiv_model(all_images1, all_images2)
 
 
     # Decode predictions for both views 

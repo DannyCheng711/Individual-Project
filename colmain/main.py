@@ -10,7 +10,7 @@ from utils.image_utils import process_image, filter_class_only
 from validation.bboxprep import decode_pred
 from validation.metrics import eval_metric_col, eval_metric_col_handcraft
 from validation.visualization import visualize_bbox_grid_tensors, plot_pr_curves_comp
-from .fusion import weighted_boxes_fusion
+from .wbf.fusion import weighted_boxes_fusion
 
 load_dotenv()  # Loads .env from current directory
 
