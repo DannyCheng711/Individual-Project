@@ -1,16 +1,15 @@
-# Standard library
 import os
-# Third-party
 import torch
-from torchvision.ops import nms
+import psutil
+import time
+import numpy as np
+import tensorflow as tf
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 from sklearn.metrics import auc
-import numpy as np
 from tqdm import tqdm
 from torchmetrics.detection import MeanAveragePrecision
 from torchvision.ops import batched_nms
-# Local application
 from config import VOC_CLASSES, VOC_ANCHORS
 from .bboxprep import decode_pred, target_tensor_to_gt, xyxy_to_cxcywh_norm, calculate_iou_cxcy, calculate_iou_xyxy_tensor
 
@@ -134,7 +133,63 @@ def plot_pr_curve(recall_vals, precision_vals, ap=None, save_dir=None, title="Pr
         plt.savefig(save_dir)
         print(f"PR curve saved to {save_dir}")
 
-def eval_metrics(val_loader, model, image_size, epoch = None, ttl_epoch = None, iou_threshold = 0.5, save_dir=None, class_id=None):
+def eval_metrics(val_loader, model, image_size):
+
+    model.eval()
+    metric = MeanAveragePrecision(box_format="xyxy", iou_type="bbox", class_metrics=True)
+    
+    preds_list = []
+    targets_list = []
+
+    with torch.no_grad():
+        for b, (imgs, targets) in enumerate(tqdm(val_loader, desc="Validating", ncols=80)):
+            imgs = imgs.to(DEVICE)
+            preds = model(imgs) # [B, A*(5+C), S, S] 
+            decoded_preds = decode_pred(
+                preds, anchors=torch.tensor(VOC_ANCHORS, dtype=torch.float32), num_classes=len(VOC_CLASSES), image_size=image_size, conf_thresh=0.01)
+
+            for img_idx in range(len(imgs)):
+                # Predictions: decoded (xyxy pixels) -> classwise NMS -> pack dict
+                pred_boxes = decoded_preds[img_idx] # [[x1,y1,x2,y2,conf,cls], ...]
+                if pred_boxes.shape[0] > 0:
+                    boxes = pred_boxes[:, :4]
+                    scores = pred_boxes[:, 4]
+                    labels = pred_boxes[:, 5].long()
+                    # Batched NMS
+                    keep = batched_nms(boxes, scores, labels, iou_threshold=0.5)
+                    boxes = boxes[keep]
+                    scores = scores[keep]
+                    labels = labels[keep]
+                    preds_list.append({
+                        "boxes": boxes,
+                        "scores": scores,
+                        "labels": labels
+                    })
+
+                else:
+                    preds_list.append({
+                        "boxes": torch.empty((0, 4), device=DEVICE, dtype=torch.float32),
+                        "scores": torch.empty((0, ), device=DEVICE, dtype=torch.float32),
+                        "labels": torch.empty((0, ), device=DEVICE, dtype=torch.long)
+                    })
+
+                target_tensor = targets[img_idx] # [S, S, A, 5+C]
+                # Ground truth: use shared helper -> pack dict
+                gt_xyxy, gt_labels = target_tensor_to_gt(target_tensor, image_size)
+
+                targets_list.append({
+                    "boxes": gt_xyxy.clone().to(DEVICE),
+                    "labels": gt_labels.clone().to(DEVICE)
+                })
+
+    # Compute mAP
+    metric.update(preds_list, targets_list)
+    results = metric.compute()
+
+    return {"full": results, "map50": float(results["map_50"].item())}
+
+
+def eval_metrics_handcraft(val_loader, model, image_size, epoch = None, ttl_epoch = None, iou_threshold = 0.5, save_dir=None, class_id=None):
 
         """
         Evaluate model performance using mAP or class-specific AP
@@ -217,61 +272,6 @@ def eval_metrics(val_loader, model, image_size, epoch = None, ttl_epoch = None, 
 
             return {"full": results, "map50": float(results["map50"].item())}
 
-
-def eval_metrics_pkg(val_loader, model, image_size):
-
-    model.eval()
-    metric = MeanAveragePrecision(box_format="xyxy", iou_type="bbox", class_metrics=True)
-    
-    preds_list = []
-    targets_list = []
-
-    with torch.no_grad():
-        for b, (imgs, targets) in enumerate(tqdm(val_loader, desc="Validating", ncols=80)):
-            imgs = imgs.to(DEVICE)
-            preds = model(imgs) # [B, A*(5+C), S, S] 
-            decoded_preds = decode_pred(
-                preds, anchors=torch.tensor(VOC_ANCHORS, dtype=torch.float32), num_classes=len(VOC_CLASSES), image_size=image_size, conf_thresh=0.01)
-
-            for img_idx in range(len(imgs)):
-                # Predictions: decoded (xyxy pixels) -> classwise NMS -> pack dict
-                pred_boxes = decoded_preds[img_idx] # [[x1,y1,x2,y2,conf,cls], ...]
-                if pred_boxes.shape[0] > 0:
-                    boxes = pred_boxes[:, :4]
-                    scores = pred_boxes[:, 4]
-                    labels = pred_boxes[:, 5].long()
-                    # Batched NMS
-                    keep = batched_nms(boxes, scores, labels, iou_threshold=0.5)
-                    boxes = boxes[keep]
-                    scores = scores[keep]
-                    labels = labels[keep]
-                    preds_list.append({
-                        "boxes": boxes,
-                        "scores": scores,
-                        "labels": labels
-                    })
-
-                else:
-                    preds_list.append({
-                        "boxes": torch.empty((0, 4), device=DEVICE, dtype=torch.float32),
-                        "scores": torch.empty((0, ), device=DEVICE, dtype=torch.float32),
-                        "labels": torch.empty((0, ), device=DEVICE, dtype=torch.long)
-                    })
-
-                target_tensor = targets[img_idx] # [S, S, A, 5+C]
-                # Ground truth: use shared helper -> pack dict
-                gt_xyxy, gt_labels = target_tensor_to_gt(target_tensor, image_size)
-
-                targets_list.append({
-                    "boxes": gt_xyxy.clone().to(DEVICE),
-                    "labels": gt_labels.clone().to(DEVICE)
-                })
-
-    # Compute mAP
-    metric.update(preds_list, targets_list)
-    results = metric.compute()
-
-    return {"full": results, "map50": float(results["map_50"].item())}
 
 
 
@@ -404,3 +404,185 @@ def eval_metric_col_handcraft(all_preds, all_gt_boxes, iou_threshold=0.5, device
     ap = torch.trapz(precision_vals, recall_vals).item()
 
     return ap, recall_vals.numpy(), precision_vals.numpy()
+
+
+def eval_metrics_multiview(val_loader, system, image_size):
+
+    system.eval()
+    metric_a = MeanAveragePrecision(box_format="xyxy", iou_type="bbox", class_metrics=True)
+    metric_b = MeanAveragePrecision(box_format="xyxy", iou_type="bbox", class_metrics=True)
+
+    preds_list = []
+    targets_list_a = []
+    targets_list_b = []
+
+    with torch.no_grad():
+        for b, (imgs, targets) in enumerate(tqdm(val_loader, desc="Validating", ncols=80)):
+            imgs_a, imgs_b = imgs
+            targets_a, targets_b = targets
+            imgs_a = imgs_a.to(DEVICE)
+            imgs_b = imgs_b.to(DEVICE)
+            targets_a = targets_a.to(DEVICE)
+            targets_b = targets_b.to(DEVICE)
+
+            preds, _ = system(imgs_a, imgs_b) # [B, A*(5+C), S, S] 
+            # preds = system(imgs_a, imgs_b) # [B, A*(5+C), S, S] 
+            decoded_preds = decode_pred(
+                preds, anchors=torch.tensor(VOC_ANCHORS, dtype=torch.float32), num_classes=len(VOC_CLASSES), image_size=image_size, conf_thresh=0.01)
+
+            for img_idx in range(len(imgs)):
+                # Predictions: decoded (xyxy pixels) -> classwise NMS -> pack dict
+                pred_boxes = decoded_preds[img_idx] # [[x1,y1,x2,y2,conf,cls], ...]
+                if pred_boxes.shape[0] > 0:
+                    boxes = pred_boxes[:, :4]
+                    scores = pred_boxes[:, 4]
+                    labels = pred_boxes[:, 5].long()
+                    # Batched NMS
+                    keep = batched_nms(boxes, scores, labels, iou_threshold=0.5)
+                    boxes = boxes[keep]
+                    scores = scores[keep]
+                    labels = labels[keep]
+                    preds_list.append({
+                        "boxes": boxes,
+                        "scores": scores,
+                        "labels": labels
+                    })
+
+                else:
+                    preds_list.append({
+                        "boxes": torch.empty((0, 4), device=DEVICE, dtype=torch.float32),
+                        "scores": torch.empty((0, ), device=DEVICE, dtype=torch.float32),
+                        "labels": torch.empty((0, ), device=DEVICE, dtype=torch.long)
+                    })
+
+                target_tensor_a = targets_a[img_idx] # [S, S, A, 5+C]
+                # Ground truth: use shared helper -> pack dict
+                gt_xyxy_a, gt_labels_a = target_tensor_to_gt(target_tensor_a, image_size)
+                targets_list_a.append({
+                    "boxes": gt_xyxy_a.clone().to(DEVICE),
+                    "labels": gt_labels_a.clone().to(DEVICE)
+                })
+
+                target_tensor_b = targets_b[img_idx] # [S, S, A, 5+C]
+                # Ground truth: use shared helper -> pack dict
+                gt_xyxy_b, gt_labels_b = target_tensor_to_gt(target_tensor_b, image_size)
+                targets_list_b.append({
+                    "boxes": gt_xyxy_b.clone().to(DEVICE),
+                    "labels": gt_labels_b.clone().to(DEVICE)
+                })
+
+
+    # Compute mAP
+    metric_a.update(preds_list, targets_list_a)
+    metric_b.update(preds_list, targets_list_b)
+    results_a = metric_a.compute()
+    results_b = metric_b.compute()
+    map_a = results_a["map_50"].item()
+    map_b = results_b["map_50"].item()
+    avg_map = (map_a + map_b) / 2
+
+
+    return {"full": results_a, "map50": avg_map}
+
+def eval_metrics_tiny(val_loader, tflite_path, image_size):
+    interpreter = tf.lite.Interpreter(model_path=tflite_path)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    metric = MeanAveragePrecision(box_format="xyxy", iou_type="bbox", class_metrics=True)
+    preds_list = []
+    targets_list = []
+
+    for b, (imgs, targets) in enumerate(tqdm(val_loader, desc="Validating (TFLite)", ncols=80)):
+        # imgs: [B, 3, H, W] torch.Tensor
+        # Convert to numpy and [B, H, W, 3]
+        imgs_np = imgs.detach().cpu().numpy().transpose(0, 2, 3, 1)
+
+        # Quantize input if needed
+        if input_details[0]['dtype'] == np.int8:
+            scale = input_details[0]['quantization'][0]
+            zero_point = input_details[0]['quantization'][1]
+            imgs_np = np.round(imgs_np / scale + zero_point).astype(np.int8)
+        else:
+            imgs_np = imgs_np.astype(input_details[0]['dtype'])
+        
+        all_outputs = []
+        for i in range(imgs_np.shape[0]):
+            single_input = imgs_np[i:i+1]
+            interpreter.set_tensor(input_details[0]['index'], single_input)
+            interpreter.invoke()
+            output = interpreter.get_tensor(output_details[0]['index'])
+            if output_details[0]['dtype'] == np.int8:
+                scale = output_details[0]['quantization'][0]
+                zero_point = output_details[0]['quantization'][1]
+                output = scale * (output.astype(np.float32) - zero_point)
+            all_outputs.append(output)
+
+        combined_output = np.concatenate(all_outputs, axis=0) # list of predictions -> B, H, W, C
+        torch_output = torch.from_numpy(combined_output).float().permute(0, 3, 1, 2)
+        
+        # Decode predictions (reuse your decode_pred function)
+        decoded_preds = decode_pred(
+            torch_output, anchors=torch.tensor(VOC_ANCHORS, dtype=torch.float32), 
+            num_classes=len(VOC_CLASSES), image_size=image_size, conf_thresh=0.01
+        )
+
+        for img_idx in range(len(imgs)):
+            pred_boxes = decoded_preds[img_idx]# [[x1,y1,x2,y2,conf,cls], ...]
+            if  pred_boxes.shape[0] > 0:
+                boxes = pred_boxes[:, :4]
+                scores = pred_boxes[:, 4]
+                labels = pred_boxes[:, 5].long()
+                keep = batched_nms(boxes, scores, labels, iou_threshold=0.5)
+                boxes = boxes[keep]
+                scores = scores[keep]
+                labels = labels[keep]
+                preds_list.append({
+                    "boxes": boxes,
+                    "scores": scores,
+                    "labels": labels
+                })
+            else:
+                preds_list.append({
+                    "boxes": torch.empty((0, 4), dtype=torch.float32),
+                    "scores": torch.empty((0, ), dtype=torch.float32),
+                    "labels": torch.empty((0, ), dtype=torch.long)
+                })
+
+            target_tensor = targets[img_idx]
+            gt_xyxy, gt_labels = target_tensor_to_gt(target_tensor, image_size)
+            preds_device = boxes.device if pred_boxes.shape[0] > 0 else torch.device('cpu')
+            targets_list.append({
+                "boxes": gt_xyxy.clone().to(preds_device),
+                "labels": gt_labels.clone().to(preds_device)
+            })
+
+    metric.update(preds_list, targets_list)
+    results = metric.compute()
+    return {"full": results, "map50": float(results["map_50"].item())}
+
+def eval_metrics_ram_tiny(tflite_path):
+    # Measure RAM before
+    process = psutil.Process(os.getpid())
+    mem_before = process.memory_info().rss
+
+    interpreter = tf.lite.Interpreter(model_path=tflite_path)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+
+    dummy_input = np.zeros(input_details[0]['shape'], dtype=input_details[0]['dtype'])
+
+    # Inference
+    start = time.time()
+    interpreter.set_tensor(input_details[0]['index'], dummy_input)
+    interpreter.invoke()
+    end = time.time()
+
+    # Measure RAM after
+    mem_after = process.memory_info().rss
+
+    ram_footprint = mem_after - mem_before
+    inference_time = end - start
+    
+    return ram_footprint, inference_time
