@@ -132,6 +132,10 @@ def plot_pr_curves_comp(recall_vals_list, precision_vals_list, ap_list,
 
     plt.figure(figsize=(10, 8))
     colors = ['blue', 'red', 'green']
+    if "decisionfusion" in save_path:
+        fusion_label = "WBF-AP@0.5"
+    if "featurefusion" in save_path:
+        fusion_label = "FF-AP@0.5"
 
     for i, (recall_vals, precision_vals, ap) in enumerate(zip(recall_vals_list, precision_vals_list, ap_list)):
         color = colors[i % len(colors)]
@@ -140,7 +144,7 @@ def plot_pr_curves_comp(recall_vals_list, precision_vals_list, ap_list,
                     label=f"AP@0.5 = {ap:.4f}", linewidth=2, markersize=4)
         if i == 1:
             plt.plot(recall_vals, precision_vals, marker='o', linestyle='-', color=color, 
-                    label=f"WBF-AP@0.5 = {ap:.4f}", linewidth=2, markersize=4)
+                    label=f"{fusion_label} = {ap:.4f}", linewidth=2, markersize=4)
 
     plt.xlabel("Recall", fontsize=14)
     plt.ylabel("Precision", fontsize=14)
@@ -219,7 +223,10 @@ def visualize_bbox_grid_tensors(images_view1, images_view2,
         if cols == 1:
             axes = axes.reshape(-1, 1)
         
-        row_titles = ["View1 Base", "View1 WBF", "View2 Base", "View2 WBF"]
+        if "decisionfusion" in save_path:
+            row_titles = ["View1 Base", "View1 WBF", "View2 Base", "View2 WBF"]
+        if "featurefusion" in save_path:
+            row_titles = ["View1 Base", "View1 FF", "View2 Base", "View2 FF"]
 
         for col in range(cols):
             actual_col = start_col + col

@@ -9,7 +9,7 @@ from torchvision.datasets import VOCDetection
 import tensorflow as tf
 import torch
 from config import VOC_ANCHORS
-from dataset.vocdatset import YoloVocDataset
+from dataset.voc.vocdataset import YoloVocDataset
 
 load_dotenv()  # Loads .env from current directory
 

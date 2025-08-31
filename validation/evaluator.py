@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from config import VOC_CLASSES
 from .metrics import eval_metrics, eval_metrics_handcraft, eval_metrics_multiview, eval_metrics_tiny, eval_metrics_ram_tiny
 from .visualization import visualize_predictions
-from dataset.vocdatset import YoloVocDataset, MultiViewYoloVocDataset
+from dataset.voc.vocdataset import YoloVocDataset, MultiViewYoloVocDataset
 
 load_dotenv()  # Loads .env from current directory
 

@@ -4,11 +4,11 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision.datasets import VOCDetection
 
-from dataset.vocdatset import MultiViewYoloVocDataset
+from dataset.voc.vocdataset import MultiViewYoloVocDataset
 from models.dethead.yolodet import Yolov2Loss 
 from models.dethead.mvyolodet import MultiViewMcuYolo
 from models.dethead.mvdet_test import MultiViewYolo
-from ..logging import RunManager 
+from utils.logging import RunManager 
 from dotenv import load_dotenv
 from config import VOC_CLASSES, VOC_ANCHORS, VOC_CLASS_TO_IDX
 from validation.visualization import plot_loss
