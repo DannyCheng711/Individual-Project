@@ -5,7 +5,6 @@ images/
 images_voc/
 test/
 test_voc/
-saved_models/
 *.out
 *.txt
 *.pth
