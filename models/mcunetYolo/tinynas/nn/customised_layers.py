@@ -46,7 +46,6 @@ class McuYoloDetectionHead(MyModule):
         x = self.conv2(x) # 5x5x512 -> 5x5x512
 
         if passthrough_feat is not None:
-            print("[PYTORCH] Conv3 is being used!") 
             passthrough = self.space_to_depth(passthrough_feat)
             x = torch.cat([x, passthrough], dim=1)
             x = self.conv3(x)

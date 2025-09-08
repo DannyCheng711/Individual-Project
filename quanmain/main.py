@@ -25,7 +25,7 @@ epoch_num = 160
 grid_num = 5
 
 "======= Evaluate Model Size and mAP ======="
-with open("./nasmain/model_config/mcunetYolo_config.json", "r") as f:
+with open("./quanmain/model_config/mcunetYolo_config.json", "r") as f:
     mcunetYolo_config = json.load(f)
 
 checkpoint = torch.load("./runs/mcunet_S5_res160_pkg_lrdecay/best.pth", map_location='cpu')

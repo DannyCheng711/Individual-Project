@@ -163,7 +163,7 @@ if __name__ == "__main__":
     #         print(" Converting PyTorch keys to PyTorch NAS keys...")
     #         fixed_state_dict = fix_state_dict_keys(checkpoint['model'])
 
-    #         with open("./nasmain/model_config/mcunetYolo_config.json", "r") as f:
+    #         with open("./quanmain/model_config/mcunetYolo_config.json", "r") as f:
     #             mcunetYolo_config = json.load(f)
 
     #         pytorch_model = ProxylessNASNets.build_from_config(mcunetYolo_config)
@@ -197,7 +197,7 @@ if __name__ == "__main__":
     # plt.grid(True, linestyle="--", alpha=0.5)
     # plt.legend()
     # plt.tight_layout()
-    # plt.savefig("./nasmain/profile/flops_vs_map.png", dpi=300)
+    # plt.savefig("./quanmain/profile/flops_vs_map.png", dpi=300)
 
     """ ==== Draw the Different Backbone Comparison Figure ==== """
 
@@ -237,5 +237,5 @@ if __name__ == "__main__":
 
     # plt.suptitle("Backbone Comparison across Metrics", fontsize=15)
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig("./nasmain/profile/backbone_comparison.png", dpi=300)
+    plt.savefig("./quanmain/profile/backbone_comparison.png", dpi=300)
     plt.show()

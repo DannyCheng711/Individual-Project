@@ -13,7 +13,6 @@ test_voc/
 *.png
 co3d/
 **/result/
-nasmain/results
 logs/
 runs/
 

@@ -43,7 +43,6 @@ class McuYoloDetectionHeadTF:
 
             passthrough_feat = intermediate_features.get('passthrough')
             if passthrough_feat is not None:
-                print("[TF] Conv3 is being used!")
                 space_to_depth_layer = SpaceToDepthTF('space_to_depth', block_size=2)
                 passthrough = space_to_depth_layer.build(passthrough_feat, net, init)
                 output = tf.concat([output, passthrough], axis=3)

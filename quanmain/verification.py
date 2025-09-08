@@ -34,7 +34,7 @@ from utils.feature_extraction import extract_yolo_head_features_tf, extract_yolo
 #     }
 # })
 
-with open("./nasmain/model_config/mcunetYolo_config.json", "r") as f:
+with open("./quanmain/model_config/mcunetYolo_config.json", "r") as f:
     mcunetYolo_config = json.load(f)
 
 checkpoint = torch.load("./runs/mcunet_S5_res160_pkg_s2d/best.pth", map_location='cpu')

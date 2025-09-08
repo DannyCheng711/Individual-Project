@@ -23,7 +23,7 @@ IMAGE_SIZE = 160
 
 eval_class = "car"
 
-with open("./nasmain/model_config/mcunetYolo_config.json", "r") as f:
+with open("./quanmain/model_config/mcunetYolo_config.json", "r") as f:
     mcunetYolo_config = json.load(f)
 
 checkpoint = torch.load("./runs/mcunet_S5_res160_pkg_lrdecay/best.pth", map_location='cpu')

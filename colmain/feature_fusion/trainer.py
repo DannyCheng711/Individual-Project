@@ -251,7 +251,7 @@ if __name__ == "__main__":
     epoch_num = 1
 
     run_name = f"multiview_S{grid_num}_res{image_size}"
-    base_run_dir = os.path.join("./colmain/featurefusion/runs", run_name)
+    base_run_dir = os.path.join("./colmain/feature_fusion/runs", run_name)
     os.makedirs(base_run_dir, exist_ok=True)
     eval_dir = os.path.join(base_run_dir, "eval")
     os.makedirs(eval_dir, exist_ok=True)

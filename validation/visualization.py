@@ -132,9 +132,9 @@ def plot_pr_curves_comp(recall_vals_list, precision_vals_list, ap_list,
 
     plt.figure(figsize=(10, 8))
     colors = ['blue', 'red', 'green']
-    if "decisionfusion" in save_path:
+    if "decision_fusion" in save_path:
         fusion_label = "WBF-AP@0.5"
-    if "featurefusion" in save_path:
+    if "feature_fusion" in save_path:
         fusion_label = "FF-AP@0.5"
 
     for i, (recall_vals, precision_vals, ap) in enumerate(zip(recall_vals_list, precision_vals_list, ap_list)):
@@ -223,9 +223,9 @@ def visualize_bbox_grid_tensors(images_view1, images_view2,
         if cols == 1:
             axes = axes.reshape(-1, 1)
         
-        if "decisionfusion" in save_path:
+        if "decision_fusion" in save_path:
             row_titles = ["View1 Base", "View1 WBF", "View2 Base", "View2 WBF"]
-        if "featurefusion" in save_path:
+        if "feature_fusion" in save_path:
             row_titles = ["View1 Base", "View1 FF", "View2 Base", "View2 FF"]
 
         for col in range(cols):
