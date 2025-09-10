@@ -208,17 +208,17 @@ class CO3DProcessor:
 
 
 if __name__ == "__main__":
+    target_dir = "./dataset/occlusion/co3d/train_car"
     processor = CO3DProcessor(
         category="car",
-        base_dir = "./co3d/car", 
-        output_dir= "./co3d/car"
+        base_dir = target_dir, 
+        output_dir= target_dir
     )
 
-    # manifest_path = os.path.join(
-    #    os.path.dirname("./co3d/car/"), "manifest.json")
+    manifest_path = os.path.join(target_dir, "manifest.json")
 
-    # processor.create_bboxes(manifest_path=manifest_path)
+    processor.create_bboxes(manifest_path=manifest_path)
 
-    manifest_path_bbox = os.path.join(
-        os.path.dirname("./co3d/car/"), "manifest_with_bboxes.json")
+    manifest_path_bbox = os.path.join(target_dir, "manifest_with_bboxes.json")
+    
     processor.create_occlusion_images(manifest_path=manifest_path_bbox, occlusion_rates=[0.3, 0.5, 0.7])
