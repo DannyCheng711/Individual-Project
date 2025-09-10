@@ -1,7 +1,7 @@
 # MSc Individual Project
 
 This repository contains the code and experiment logs for my MSc Individual Project:  
-**"Collaborative Learning for Occlusion-Robust Object Detection on Ultra-Low-End Edge Devices"**.
+**"Tiny End-to-End Collaborative Learning for Occlusion-Robust Object Detections"**.
 
 ## Structure
 - `vocmain/` – Pretraining experiments (MCUNet + YOLOv2).
