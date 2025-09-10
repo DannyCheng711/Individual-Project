@@ -8,6 +8,7 @@ This repository contains the code and experiment logs for my MSc Individual Proj
 - `quanmain/`- Quantisation experiments (Pytorch -> TensorFlow -> TFLite)
 - `colmain/` – Collaborative inference (feature-level and decision-level, WBF).
 - `dflmain/` – Decentralised federated learning (FedAvg prototype).
+- `google-coral-micro-object-detection_/` – MCU deployment and WiFi communication
 
 
 ## Notes
